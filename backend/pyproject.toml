@@ -1,0 +1,11 @@
+
+[project]
+name = "quizgenerator-backend"
+version = "0.1.0"
+description = "QuizGenerator backend"
+requires-python = "==3.11.9"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: интеграционные тесты",
+]

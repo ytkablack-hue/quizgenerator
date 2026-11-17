@@ -1,0 +1,32 @@
+﻿__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+build/
+dist/
+.gradle/
+local.properties
+*.db
+*.sqlite3
+storage/uploads/*
+storage/generated/*
+
+# Secrets
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python environments
+.python-version
+
+# IDE and OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
