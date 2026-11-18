@@ -1,6 +1,12 @@
 package kz.quizgenerator
 
 import android.os.Bundle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import java.io.File
+import java.time.LocalDate
+import java.util.UUID
 import android.os.SystemClock
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.ComponentActivity
@@ -46,21 +52,43 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repository = QuizRepository(applicationContext)
-        setContent { MaterialTheme { QuizGeneratorApp(repository) } }
+        setContent {
+            val store = remember { StudyStore(File(filesDir, "study.json")) }
+            val initial = remember { runCatching { store.load() } }
+            var study by remember { mutableStateOf(initial.getOrDefault(StudyData())) }
+            var failure by remember { mutableStateOf(if (initial.isFailure) "Не удалось прочитать данные подготовки" else null) }
+            MaterialTheme(colorScheme = if (study.settings.dark) darkColorScheme() else lightColorScheme()) {
+                QuizGeneratorApp(repository, study, { updated ->
+                    runCatching {
+                        check(initial.isSuccess) { "Файл подготовки не читается" }
+                        store.save(updated)
+                    }.onSuccess { study = updated; failure = null }
+                        .onFailure { failure = "Не удалось сохранить данные подготовки" }.isSuccess
+                }, failure)
+            }
+        }
     }
 }
 
-private enum class Page { LIBRARY, REVIEW, EDIT, QUIZ, RESULTS }
+private enum class Page { LIBRARY, CREATE, MANUAL, CARDS, PREPARATION, SETTINGS, REVIEW, EDIT, QUIZ, RESULTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuizGeneratorApp(repository: QuizRepository) {
+private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, update: (StudyData) -> Boolean, storageError: String?) {
     var quizzes by remember { mutableStateOf(repository.listQuizzes()) }
     var page by rememberSaveable { mutableStateOf(Page.LIBRARY) }
     var quizId by rememberSaveable { mutableStateOf<String?>(null) }
     val currentQuiz = quizzes.firstOrNull { it.id == quizId }
     var questionIndex by rememberSaveable { mutableStateOf(0) }
     var answers by rememberSaveable { mutableStateOf(arrayListOf<Int?>()) }
+    var sessionSeed by rememberSaveable { mutableStateOf(0L) }
+    var attemptId by rememberSaveable { mutableStateOf("") }
+    val prepared = remember(currentQuiz, study.settings, sessionSeed) {
+        currentQuiz?.let { StudyLogic.prepare(it, study.settings, sessionSeed) }
+    }
+    var search by rememberSaveable { mutableStateOf("") }
+    var sorted by rememberSaveable { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<Quiz?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
     var importWarnings by remember { mutableStateOf<List<String>>(emptyList()) }
     var editingIndex by remember { mutableStateOf(0) }
@@ -69,7 +97,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
     var draftCorrect by remember { mutableStateOf<Int?>(null) }
     var draftExplanation by remember { mutableStateOf("") }
     var editError by remember { mutableStateOf<String?>(null) }
-    var timerMinutes by rememberSaveable { mutableStateOf(0) }
+    var timerMinutes by rememberSaveable { mutableStateOf(study.settings.minutes) }
     var deadline by rememberSaveable { mutableStateOf(0L) }
     var remainingSeconds by remember(deadline) {
         mutableStateOf(QuizTimer.secondsLeft(deadline, SystemClock.elapsedRealtime()))
@@ -77,6 +105,10 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
     var timeExpired by rememberSaveable { mutableStateOf(false) }
 
     fun finishQuiz() {
+        if (page != Page.QUIZ) return
+        val quiz = prepared ?: return
+        val attempt = StudyLogic.complete(attemptId, quiz, answers, System.currentTimeMillis())
+        if (study.attempts.none { it.id == attempt.id }) update(study.copy(attempts = study.attempts + attempt))
         timeExpired = QuizTimer.expired(deadline, SystemClock.elapsedRealtime())
         page = Page.RESULTS
     }
@@ -100,6 +132,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                 val imported = repository.importQuiz(uri)
                 quizzes = repository.listQuizzes()
                 quizId = imported.quiz.id
+                timerMinutes = study.settings.minutes
                 importWarnings = imported.warnings
                 importError = null
                 page = Page.REVIEW
@@ -127,34 +160,74 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
         page = Page.EDIT
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("QuizGenerator") }) }) { innerPadding ->
+    deleteTarget?.let { quiz ->
+        AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Удалить тест?") },
+            text = { Text(quiz.title) },
+            confirmButton = { TextButton(onClick = {
+                runCatching { repository.deleteQuiz(quiz); quizzes = repository.listQuizzes() }
+                    .onFailure { importError = it.message }
+                deleteTarget = null
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Отмена") } })
+    }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("TestHelper") }) }) { innerPadding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            storageError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             when (page) {
+                Page.CREATE -> StudyColumn("Создать", ::returnHome) {
+                    Button(onClick = { page = Page.MANUAL }) { Text("Создать вручную") }
+                    OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Импортировать TXT, DOCX или JSON") }
+                    importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+                Page.MANUAL -> ManualQuizScreen(onSave = { quiz ->
+                    val saved = repository.addQuiz(quiz)
+                    quizzes = repository.listQuizzes()
+                    quizId = saved.id
+                    importWarnings = emptyList()
+                    timerMinutes = study.settings.minutes
+                    page = Page.REVIEW
+                }, onBack = { page = Page.CREATE })
+                Page.CARDS -> FlashcardScreen(study.cards, { update(study.copy(cards = it)) }, ::returnHome)
+                Page.PREPARATION -> PreparationScreen(study, quizzes, { update(study.copy(exams = it)) }, ::returnHome)
+                Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::returnHome)
                 Page.LIBRARY -> {
-                    Text("Мои тесты", style = MaterialTheme.typography.headlineMedium)
-                    Text("Все сохранённые тесты доступны без интернета.")
-                    Button(onClick = { picker.launch(arrayOf("*/*")) }) {
-                        Text("Импортировать Word / TXT / JSON")
+                    Text("Подготовка к экзаменам", style = MaterialTheme.typography.headlineMedium)
+                    study.exams.filter { it.date >= LocalDate.now() }.minByOrNull(Exam::date)?.let {
+                        Text("Ближайший экзамен · ${it.title} · ${it.date}")
                     }
-                    Text("PDF, фото и распознавание ИИ добавим позже.", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(onClick = { page = Page.CREATE }) { Text("Создать тест") }
+                        OutlinedButton(onClick = { page = Page.CARDS }) { Text("Карточки") }
+                        OutlinedButton(onClick = { page = Page.PREPARATION }) { Text("План и статистика") }
+                        OutlinedButton(onClick = { page = Page.SETTINGS }) { Text("Настройки") }
+                    }
+                    Text("Мои тесты", style = MaterialTheme.typography.titleLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(search, { search = it }, label = { Text("Поиск") }, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { sorted = !sorted }) { Text(if (sorted) "А–Я" else "Сортировать") }
+                    }
+                    val matching = quizzes.filter { it.title.contains(search.trim(), ignoreCase = true) }
                     importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     HorizontalDivider()
                     LazyColumn(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(quizzes, key = { it.id }) { quiz ->
+                        items(if (sorted) matching.sortedBy { it.title.lowercase() } else matching, key = { it.id }) { quiz ->
                             Card(onClick = {
                                 quizId = quiz.id
+                                timerMinutes = study.settings.minutes
                                 importWarnings = emptyList()
                                 page = Page.REVIEW
                             }) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                                     Text(quiz.title, style = MaterialTheme.typography.titleLarge)
                                     Text("Вопросов: ${quiz.questions.size}")
+                                    if (repository.canDelete(quiz)) TextButton(onClick = { deleteTarget = quiz }) { Text("Удалить") }
                                 }
                             }
                         }
@@ -202,7 +275,9 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                     }
                     Button(onClick = {
                         questionIndex = 0
-                        answers = ArrayList(List(quiz.questions.size) { null })
+                        sessionSeed = System.nanoTime()
+                        answers = ArrayList(List(StudyLogic.prepare(quiz, study.settings, sessionSeed).questions.size) { null })
+                        attemptId = UUID.randomUUID().toString()
                         deadline = QuizTimer.deadline(SystemClock.elapsedRealtime(), timerMinutes)
                         timeExpired = false
                         page = Page.QUIZ
@@ -268,7 +343,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить исправления") }
                     TextButton(onClick = { page = Page.REVIEW }) { Text("Отмена") }
                 }
-                Page.QUIZ -> currentQuiz?.let { quiz ->
+                Page.QUIZ -> prepared?.let { quiz ->
                     val question = quiz.questions[questionIndex]
                     var showExplanation by remember(quiz.id, questionIndex) { mutableStateOf(false) }
                     Column(
@@ -299,7 +374,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                                 Text(optionText, modifier = Modifier.padding(start = 8.dp))
                             }
                         }
-                        if (!question.explanation.isNullOrBlank()) {
+                        if (study.settings.showHints && !question.explanation.isNullOrBlank()) {
                             TextButton(onClick = { showExplanation = !showExplanation }) {
                                 Text(if (showExplanation) "Скрыть пояснение" else "Пояснить вопрос")
                             }
@@ -321,7 +396,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                     }
                     TextButton(onClick = { returnHome() }) { Text("В библиотеку") }
                 }
-                Page.RESULTS -> currentQuiz?.let { quiz ->
+                Page.RESULTS -> prepared?.let { quiz ->
                     val score = QuizScorer.score(quiz, answers)
                     Text("Результат", style = MaterialTheme.typography.headlineMedium)
                     if (timeExpired) Text("Время вышло: тест завершён автоматически.")
@@ -338,14 +413,14 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
                                     Text("${index + 1}. ${question.text}")
                                     Text("Твой ответ: ${given?.let { question.options[it] } ?: "Нет ответа"}")
-                                    Text(
+                                    if (study.settings.showAnswers) Text(
                                         when {
                                             question.correctIndex == null -> "Правильный ответ не указан в источнике"
                                             given == question.correctIndex -> "Верно"
                                             else -> "Правильно: ${question.options[question.correctIndex]}"
                                         }
                                     )
-                                    question.explanation?.let { Text("Пояснение: $it") }
+                                    if (study.settings.showAnswers) question.explanation?.let { Text("Пояснение: $it") }
                                 }
                             }
                         }

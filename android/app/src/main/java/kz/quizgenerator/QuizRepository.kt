@@ -83,9 +83,24 @@ class QuizRepository(private val context: Context) {
         return saved
     }
 
+    fun addQuiz(quiz: Quiz): Quiz {
+        val added = quiz.copy(id = UUID.randomUUID().toString())
+        QuizJson.parse(QuizJson.serialize(added))
+        persist(added)
+        return added
+    }
+
+    fun canDelete(quiz: Quiz): Boolean =
+        runCatching { UUID.fromString(quiz.id).toString() == quiz.id }.getOrDefault(false)
+
+    fun deleteQuiz(quiz: Quiz) {
+        require(canDelete(quiz)) { "Демонстрационный тест нельзя удалить" }
+        val file = File(directory, "${quiz.id}.json")
+        check(!file.exists() || file.delete()) { "Не удалось удалить тест" }
+    }
+
     private fun persist(imported: Quiz) {
         require(runCatching { UUID.fromString(imported.id) }.isSuccess) { "Неверный ID теста" }
-        check(directory.exists() || directory.mkdirs()) { "Не удалось создать папку тестов" }
-        File(directory, "${imported.id}.json").writeText(QuizJson.serialize(imported), Charsets.UTF_8)
+        atomicWrite(File(directory, "${imported.id}.json"), QuizJson.serialize(imported))
     }
 }
