@@ -1,7 +1,9 @@
 package kz.quizgenerator
 
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import java.io.File
@@ -57,7 +59,12 @@ class MainActivity : ComponentActivity() {
             val initial = remember { runCatching { store.load() } }
             var study by remember { mutableStateOf(initial.getOrDefault(StudyData())) }
             var failure by remember { mutableStateOf(if (initial.isFailure) "Не удалось прочитать данные подготовки" else null) }
-            MaterialTheme(colorScheme = if (study.settings.dark) darkColorScheme() else lightColorScheme()) {
+            val colors = if (study.settings.dark) {
+                darkColorScheme(primary = Color(0xFF8DD5BB), secondary = Color(0xFFC0C6E7))
+            } else {
+                lightColorScheme(primary = Color(0xFF216451), secondary = Color(0xFF525E91))
+            }
+            MaterialTheme(colorScheme = colors) {
                 QuizGeneratorApp(repository, study, { updated ->
                     runCatching {
                         check(initial.isSuccess) { "Файл подготовки не читается" }
@@ -70,7 +77,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Page { LIBRARY, CREATE, MANUAL, CARDS, PREPARATION, SETTINGS, REVIEW, EDIT, QUIZ, RESULTS }
+private enum class Page { LIBRARY, CREATE, MANUAL, AI, CARDS, PREPARATION, SETTINGS, REVIEW, EDIT, QUIZ, RESULTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -160,6 +167,14 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
         page = Page.EDIT
     }
 
+    BackHandler(enabled = page != Page.LIBRARY) {
+        when (page) {
+            Page.EDIT -> page = Page.REVIEW
+            Page.MANUAL, Page.AI -> page = Page.CREATE
+            else -> returnHome()
+        }
+    }
+
     deleteTarget?.let { quiz ->
         AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Удалить тест?") },
             text = { Text(quiz.title) },
@@ -180,9 +195,22 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
             when (page) {
                 Page.CREATE -> StudyColumn("Создать", ::returnHome) {
                     Button(onClick = { page = Page.MANUAL }) { Text("Создать вручную") }
+                    OutlinedButton(onClick = { page = Page.AI }) { Text("Создать с ИИ") }
                     OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Импортировать TXT, DOCX или JSON") }
                     importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
+                Page.AI -> AiScreen(study.settings, study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
+                    repository::readStudyMaterial,
+                    saveQuiz = { quiz ->
+                        val saved = repository.addQuiz(quiz)
+                        quizzes = repository.listQuizzes()
+                        quizId = saved.id
+                        importWarnings = emptyList()
+                        timerMinutes = study.settings.minutes
+                        page = Page.REVIEW
+                    },
+                    saveCards = { update(study.copy(cards = study.cards + it)) },
+                    onBack = { page = Page.CREATE })
                 Page.MANUAL -> ManualQuizScreen(onSave = { quiz ->
                     val saved = repository.addQuiz(quiz)
                     quizzes = repository.listQuizzes()
@@ -202,9 +230,10 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(onClick = { page = Page.CREATE }) { Text("Создать тест") }
                         OutlinedButton(onClick = { page = Page.CARDS }) { Text("Карточки") }
-                        OutlinedButton(onClick = { page = Page.PREPARATION }) { Text("План и статистика") }
+                        OutlinedButton(onClick = { page = Page.PREPARATION }) { Text("Продолжить подготовку") }
                         OutlinedButton(onClick = { page = Page.SETTINGS }) { Text("Настройки") }
                     }
+                    if (study.attempts.isNotEmpty()) Text("Занятий: ${study.attempts.size}")
                     Text("Мои тесты", style = MaterialTheme.typography.titleLarge)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(search, { search = it }, label = { Text("Поиск") }, modifier = Modifier.weight(1f))
@@ -226,6 +255,7 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
                             }) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                                     Text(quiz.title, style = MaterialTheme.typography.titleLarge)
+                                    if (quiz.generatedByAi) Text("Создано ИИ", style = MaterialTheme.typography.labelMedium)
                                     Text("Вопросов: ${quiz.questions.size}")
                                     if (repository.canDelete(quiz)) TextButton(onClick = { deleteTarget = quiz }) { Text("Удалить") }
                                 }
@@ -236,6 +266,7 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
                 Page.REVIEW -> currentQuiz?.let { quiz ->
                     Text("Проверка перед тестом", style = MaterialTheme.typography.headlineSmall)
                     Text(quiz.title, style = MaterialTheme.typography.titleMedium)
+                    if (quiz.generatedByAi) Text("Создано ИИ · проверьте вопросы и ключи")
                     val withoutAnswers = quiz.questions.count { it.correctIndex == null }
                     if (withoutAnswers > 0) {
                         Text("Без ключа ответа: $withoutAnswers. Их можно исправить вручную; пока они не учитываются в оценке.")
@@ -378,7 +409,10 @@ private fun QuizGeneratorApp(repository: QuizRepository, study: StudyData, updat
                             TextButton(onClick = { showExplanation = !showExplanation }) {
                                 Text(if (showExplanation) "Скрыть пояснение" else "Пояснить вопрос")
                             }
-                            if (showExplanation) Text(question.explanation)
+                            if (showExplanation) {
+                                Text(question.explanation)
+                                question.sourceExcerpt?.let { Text("Цитата: $it") }
+                            }
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

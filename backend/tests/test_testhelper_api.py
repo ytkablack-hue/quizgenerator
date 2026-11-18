@@ -14,8 +14,8 @@ def envelope(data):
 
 
 class ApiTest(unittest.TestCase):
-    def setUp(self):
-        self.server = make_server(0, Gateway())
+    def start_api(self, gateway, access_token=""):
+        self.server = make_server(0, gateway, access_token)
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01})
         self.thread.start()
         self.addCleanup(self.server.server_close)
@@ -33,14 +33,34 @@ class ApiTest(unittest.TestCase):
             connection.close()
 
     def test_health_and_missing_provider_key(self):
+        self.start_api(Gateway())
         self.assertEqual(self.call("health"), (200, {"status": "ok"}))
         self.assertEqual(self.call("ai/status"), (200, {"configured": False}))
         self.assertEqual(self.call("ai/quizzes", {"topic": "Физика", "count": 1})[0], 503)
 
     def test_bad_inputs_and_large_requests(self):
+        self.start_api(Gateway())
         for payload in ({}, {"topic": "Физика", "count": False}, {"topic": "Физика", "count": 26}):
             self.assertEqual(self.call("ai/quizzes", payload)[0], 422)
         self.assertEqual(self.call("ai/flashcards", {"material": "x" * MAX_BODY})[0], 413)
+
+
+    def test_authenticated_http_generation_with_mock_provider(self):
+        def fake(*_args):
+            return envelope({"title": "Физика", "questions": [{
+                "text": "Единица тока?", "options": ["Ампер", "Вольт"], "correctIndex": 0,
+                "explanation": "Ток измеряется в амперах.", "sourceExcerpt": None,
+            }]})
+
+        self.start_api(Gateway("test-only", transport=fake), "local-test")
+        request = {"topic": "Физика", "count": 1}
+        self.assertEqual(self.call("ai/quizzes", request)[0], 401)
+        headers = {"Authorization": "Bearer local-test"}
+        self.assertEqual(self.call("ai/status", headers=headers), (200, {"configured": True}))
+        status, result = self.call("ai/quizzes", request, headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["source"], "ai")
+        self.assertEqual(result["questions"][0]["options"][0], "Ампер")
 
 
 class GatewayTest(unittest.TestCase):

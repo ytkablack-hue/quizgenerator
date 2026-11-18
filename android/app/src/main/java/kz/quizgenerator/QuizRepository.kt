@@ -25,7 +25,7 @@ class QuizRepository(private val context: Context) {
     }
 
     /** Imports JSON, plain text and text-based DOCX locally, without contacting a server. */
-    fun importQuiz(uri: Uri): ImportResult {
+    private fun readFile(uri: Uri): Pair<String, ByteArray> {
         val stream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Не удалось открыть файл")
         val bytes = stream.use { input ->
@@ -45,6 +45,22 @@ class QuizRepository(private val context: Context) {
             ?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             } ?: "Тест"
+        return filename to bytes
+    }
+
+    fun readStudyMaterial(uri: Uri): String {
+        val (filename, bytes) = readFile(uri)
+        val material = if (filename.endsWith(".docx", ignoreCase = true)) {
+            DocxTextExtractor.extract(bytes, context.cacheDir)
+        } else decodeText(bytes)
+        return material.trim().also {
+            require(it.isNotEmpty()) { "Файл не содержит учебного текста" }
+            require(it.length <= 12_000) { "Учебный материал длиннее 12 000 символов" }
+        }
+    }
+
+    fun importQuiz(uri: Uri): ImportResult {
+        val (filename, bytes) = readFile(uri)
         val lowerName = filename.lowercase()
         val result = when {
             lowerName.endsWith(".pdf") || bytes.copyOfRange(0, minOf(4, bytes.size)).contentEquals("%PDF".toByteArray()) ->
@@ -55,11 +71,7 @@ class QuizRepository(private val context: Context) {
                 ImportResult(extracted.quiz, extracted.warnings)
             }
             else -> {
-                val decoded = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes))
-                    .toString().removePrefix("\uFEFF")
+                val decoded = decodeText(bytes)
                 if (lowerName.endsWith(".json") || decoded.trimStart().startsWith("{")) {
                     ImportResult(QuizJson.parse(decoded), emptyList())
                 } else {
@@ -98,6 +110,12 @@ class QuizRepository(private val context: Context) {
         val file = File(directory, "${quiz.id}.json")
         check(!file.exists() || file.delete()) { "Не удалось удалить тест" }
     }
+
+    private fun decodeText(bytes: ByteArray): String = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString().removePrefix("\uFEFF")
 
     private fun persist(imported: Quiz) {
         require(runCatching { UUID.fromString(imported.id) }.isSuccess) { "Неверный ID теста" }

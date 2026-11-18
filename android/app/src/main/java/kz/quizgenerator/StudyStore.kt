@@ -30,7 +30,7 @@ internal class StudyStore(private val file: File) {
         val root = JSONObject(file.readText(Charsets.UTF_8))
         val settings = root.optJSONObject("settings") ?: JSONObject()
         return StudyData(
-            cards = root.readObjects("cards") { Flashcard(getString("id"), getString("front"), getString("back")) },
+            cards = root.readObjects("cards") { Flashcard(getString("id"), getString("front"), getString("back"), optBoolean("generatedByAi")) },
             exams = root.readObjects("exams") {
                 Exam(getString("id"), getString("title"), LocalDate.parse(getString("date")), strings("topics"), strings("quizIds"))
             },
@@ -42,14 +42,14 @@ internal class StudyStore(private val file: File) {
             settings = with(settings) {
                 StudySettings(optInt("limit"), optBoolean("shuffleQuestions"), optBoolean("shuffleOptions"),
                     optBoolean("showHints", true), optBoolean("showAnswers", true), optInt("minutes"),
-                    optBoolean("dark"), optString("server"))
+                    optBoolean("dark"), optString("server"), optString("accessToken"))
             }
         )
     }
 
     fun save(data: StudyData) {
         val root = JSONObject()
-        root.put("cards", data.cards.asJson { JSONObject().put("id", id).put("front", front).put("back", back) })
+        root.put("cards", data.cards.asJson { JSONObject().put("id", id).put("front", front).put("back", back).put("generatedByAi", generatedByAi) })
         root.put("exams", data.exams.asJson {
             JSONObject().put("id", id).put("title", title).put("date", date.toString())
                 .put("topics", JSONArray(topics)).put("quizIds", JSONArray(quizIds))
@@ -64,7 +64,7 @@ internal class StudyStore(private val file: File) {
         })
         root.put("settings", with(data.settings) {
             JSONObject().put("limit", limit).put("shuffleQuestions", shuffleQuestions).put("shuffleOptions", shuffleOptions)
-                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("server", server)
+                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("server", server).put("accessToken", accessToken)
         })
         atomicWrite(file, root.toString())
     }

@@ -12,10 +12,11 @@ internal data class StudySettings(
     val showAnswers: Boolean = true,
     val minutes: Int = 0,
     val dark: Boolean = false,
-    val server: String = ""
+    val server: String = "",
+    val accessToken: String = ""
 )
 
-internal data class Flashcard(val id: String, val front: String, val back: String)
+internal data class Flashcard(val id: String, val front: String, val back: String, val generatedByAi: Boolean = false)
 internal data class Exam(val id: String, val title: String, val date: LocalDate, val topics: List<String>, val quizIds: List<String>)
 internal data class Mistake(val question: String, val given: String?, val correct: String, val explanation: String?)
 internal data class Attempt(

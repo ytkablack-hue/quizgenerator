@@ -45,16 +45,18 @@ object QuizJson {
             } else {
                 item.getString("explanation").trim().ifEmpty { null }
             }
-            QuizQuestion(questionId, text, options, correctIndex, explanation)
+            val sourceExcerpt = item.opt("sourceExcerpt") as? String
+            QuizQuestion(questionId, text, options, correctIndex, explanation, sourceExcerpt)
         }
 
-        return Quiz(id, title, questions)
+        return Quiz(id, title, questions, root.optString("source") == "ai")
     }
 
     fun serialize(quiz: Quiz): String {
         val result = JSONObject()
             .put("id", quiz.id)
             .put("title", quiz.title)
+        if (quiz.generatedByAi) result.put("source", "ai")
 
         val questions = JSONArray()
         quiz.questions.forEach { q ->
@@ -67,6 +69,7 @@ object QuizJson {
                     .put("options", options)
                     .put("correctIndex", q.correctIndex ?: JSONObject.NULL)
                     .put("explanation", q.explanation ?: JSONObject.NULL)
+                    .put("sourceExcerpt", q.sourceExcerpt ?: JSONObject.NULL)
             )
         }
         result.put("questions", questions)

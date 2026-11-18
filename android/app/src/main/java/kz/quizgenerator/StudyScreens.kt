@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -90,17 +92,32 @@ internal fun ManualQuizScreen(onSave: (Quiz) -> Unit, onBack: () -> Unit) {
 }
 
 @Composable
-internal fun FlashcardScreen(cards: List<Flashcard>, onSave: (List<Flashcard>) -> Unit, onBack: () -> Unit) {
+internal fun FlashcardScreen(cards: List<Flashcard>, onSave: (List<Flashcard>) -> Boolean, onBack: () -> Unit) {
     var selected by rememberSaveable { mutableStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
     var front by rememberSaveable { mutableStateOf("") }
     var back by rememberSaveable { mutableStateOf("") }
+    var removing by remember { mutableStateOf<Flashcard?>(null) }
+    removing?.let { target ->
+        AlertDialog(onDismissRequest = { removing = null },
+            title = { Text("Удалить карточку?") }, text = { Text(target.front) },
+            confirmButton = { TextButton(onClick = {
+                if (onSave(cards.filterNot { it.id == target.id })) {
+                    if (editing == target.id) { editing = null; front = ""; back = "" }
+                    selected = selected.coerceAtMost((cards.size - 2).coerceAtLeast(0))
+                    flipped = false
+                    removing = null
+                }
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Отмена") } })
+    }
     val card = cards.getOrNull(selected.coerceAtMost(cards.lastIndex.coerceAtLeast(0)))
     StudyColumn("Карточки", onBack) {
         if (card == null) Text("Добавьте первую карточку.")
         else {
             Text("Карточка ${cards.indexOf(card) + 1} из ${cards.size}")
+            if (card.generatedByAi) Text("Создано ИИ")
             Card(onClick = { flipped = !flipped }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (flipped) card.back else card.front, modifier = Modifier.padding(20.dp),
                     style = MaterialTheme.typography.titleLarge)
@@ -109,23 +126,28 @@ internal fun FlashcardScreen(cards: List<Flashcard>, onSave: (List<Flashcard>) -
                 OutlinedButton(onClick = { flipped = !flipped }) { Text("Перевернуть") }
                 OutlinedButton(onClick = { selected = (cards.indexOf(card) + 1) % cards.size; flipped = false }) { Text("Далее") }
             }
-            TextButton(onClick = { editing = card.id; front = card.front; back = card.back }) { Text("Редактировать карточку") }
+            Row {
+                TextButton(onClick = { editing = card.id; front = card.front; back = card.back }) { Text("Редактировать") }
+                TextButton(onClick = { removing = card }) { Text("Удалить") }
+            }
         }
         StudyField(front, { front = it }, "Лицевая сторона")
         StudyField(back, { back = it }, "Обратная сторона")
         Button(enabled = front.isNotBlank() && back.isNotBlank(), onClick = {
             val id = editing
-            val changed = Flashcard(id ?: UUID.randomUUID().toString(), front.trim(), back.trim())
-            onSave(if (id == null) cards + changed else cards.map { if (it.id == id) changed else it })
-            if (id == null) selected = cards.size
-            flipped = false; editing = null; front = ""; back = ""
+            val ai = cards.firstOrNull { it.id == id }?.generatedByAi ?: false
+            val changed = Flashcard(id ?: UUID.randomUUID().toString(), front.trim(), back.trim(), ai)
+            if (onSave(if (id == null) cards + changed else cards.map { if (it.id == id) changed else it })) {
+                if (id == null) selected = cards.size
+                flipped = false; editing = null; front = ""; back = ""
+            }
         }) { Text(if (editing == null) "Добавить карточку" else "Сохранить правки") }
         if (editing != null) TextButton(onClick = { editing = null; front = ""; back = "" }) { Text("Отменить редактирование") }
     }
 }
 
 @Composable
-internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (List<Exam>) -> Unit, onBack: () -> Unit) {
+internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (List<Exam>) -> Boolean, onBack: () -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var topics by rememberSaveable { mutableStateOf("") }
@@ -137,6 +159,13 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
     val total = data.attempts.sumOf { it.score.gradedTotal }
     StudyColumn("Подготовка", onBack) {
         Text("Пройдено тестов: ${data.attempts.size} · Верно: $score из $total")
+        val weak = data.attempts.groupBy(Attempt::title)
+            .mapValues { (_, attempts) -> attempts.sumOf { it.mistakes.size } }
+            .filterValues { it > 0 }.entries.sortedByDescending { it.value }.take(5)
+        if (weak.isNotEmpty()) {
+            Text("Темы для повторения", style = MaterialTheme.typography.titleMedium)
+            weak.forEach { Text("${it.key} · ошибок или пропусков: ${it.value}") }
+        }
         data.exams.sortedBy(Exam::date).forEach { exam ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
@@ -168,7 +197,9 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
                 val exam = Exam(selectedId ?: UUID.randomUUID().toString(), title.trim(), parsedDate,
                     topics.split(',').map(String::trim).filter(String::isNotEmpty).distinct(), links.toList())
                 onSave(data.exams.filterNot { it.id == exam.id } + exam)
-            }.onSuccess { title = ""; topics = ""; selectedId = null; links = arrayListOf(); error = null }
+            }.onSuccess { saved ->
+                if (saved) { title = ""; topics = ""; selectedId = null; links = arrayListOf(); error = null }
+            }
                 .onFailure { error = "Проверьте дату экзамена (ГГГГ-ММ-ДД)" }
         }) { Text(if (selectedId == null) "Создать экзамен" else "Сохранить экзамен") }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -185,9 +216,10 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
 }
 
 @Composable
-internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -> Unit, onBack: () -> Unit) {
+internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -> Boolean, onBack: () -> Unit) {
     var value by remember(settings) { mutableStateOf(settings) }
     var limit by rememberSaveable { mutableStateOf(settings.limit.toString()) }
+    var error by remember { mutableStateOf<String?>(null) }
     StudyColumn("Настройки", onBack) {
         Text("TestHelper · подготовка к экзаменам")
         StudyField(limit, { limit = it.filter(Char::isDigit).take(3) }, "Вопросов на тест (0 — все)")
@@ -204,7 +236,18 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
                 }
             }
         }
-        Button(onClick = { onSave(value.copy(limit = (limit.toIntOrNull() ?: 0).coerceIn(0, 500))); onBack() }) {
+        Text(if (value.server.isBlank()) "ИИ: сервер не задан" else "ИИ: сервер настроен, статус доступен в разделе ИИ")
+        StudyField(value.server, { value = value.copy(server = it.trim()) }, "Адрес backend")
+        OutlinedTextField(value.accessToken, { value = value.copy(accessToken = it.trim()) },
+            label = { Text("Код доступа к backend (если задан)") }, modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation())
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Button(onClick = {
+            runCatching {
+                if (value.server.isNotBlank()) AiClient.baseUri(value.server)
+                if (onSave(value.copy(limit = (limit.toIntOrNull() ?: 0).coerceIn(0, 500)))) onBack()
+            }.onFailure { error = it.message }
+        }) {
             Text("Сохранить настройки")
         }
     }

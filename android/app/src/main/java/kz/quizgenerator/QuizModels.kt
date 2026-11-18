@@ -5,13 +5,15 @@ data class QuizQuestion(
     val text: String,
     val options: List<String>,
     val correctIndex: Int?,
-    val explanation: String?
+    val explanation: String?,
+    val sourceExcerpt: String? = null
 )
 
 data class Quiz(
     val id: String,
     val title: String,
-    val questions: List<QuizQuestion>
+    val questions: List<QuizQuestion>,
+    val generatedByAi: Boolean = false
 )
 
 data class QuizScore(
