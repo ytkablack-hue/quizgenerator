@@ -13,7 +13,8 @@ internal data class StudySettings(
     val minutes: Int = 0,
     val dark: Boolean = false,
     val server: String = "",
-    val accessToken: String = ""
+    val accessToken: String = "",
+    val theme: String = if (dark) "dark" else "system"
 )
 
 internal data class Flashcard(val id: String, val front: String, val back: String, val generatedByAi: Boolean = false)

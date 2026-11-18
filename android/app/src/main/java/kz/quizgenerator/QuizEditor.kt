@@ -1,0 +1,233 @@
+package kz.quizgenerator
+
+import android.net.Uri
+import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.*
+import java.util.UUID
+
+internal data class QuizDraft(val quiz: Quiz, val original: Quiz? = null,
+                              val document: DocumentDetails? = null, val warnings: List<String> = emptyList(),
+                              val detectedCount: Int? = document?.let { quiz.questions.size }) {
+    val isDirty: Boolean get() = if (original != null) original != quiz
+        else quiz.title.isNotBlank() || quiz.questions.isNotEmpty() || document != null
+}
+
+internal fun emptyQuiz() = Quiz(UUID.randomUUID().toString(), "", emptyList())
+internal fun emptyQuestion() = QuizQuestion(UUID.randomUUID().toString(), "", listOf("", ""), null, null)
+
+internal object EditorRules {
+    fun move(questions: List<QuizQuestion>, from: Int, to: Int): List<QuizQuestion> {
+        require(from in questions.indices && to in questions.indices)
+        return questions.toMutableList().apply { add(to, removeAt(from)) }
+    }
+
+    fun validate(title: String, questions: List<QuizQuestion>) {
+        require(title.isNotBlank()) { "Введите название теста" }
+        require(questions.size in 1..500) { "Добавьте от 1 до 500 вопросов" }
+        questions.forEach(::validateQuestion)
+    }
+
+    fun validateQuestion(question: QuizQuestion) {
+        require(question.text.isNotBlank()) { "Введите текст вопроса" }
+        require(question.options.size in 2..8) { "Добавьте от двух до восьми вариантов ответа" }
+        require(question.options.none(String::isBlank)) { "Заполните все варианты ответа" }
+        require(question.correctIndex == null || question.correctIndex in question.options.indices) { "Выберите существующий вариант" }
+    }
+}
+
+internal class QuestionFields(val initial: QuizQuestion) {
+    var text by mutableStateOf(initial.text)
+    var options by mutableStateOf(ArrayList(initial.options))
+    var correct by mutableStateOf(initial.correctIndex)
+    var explanation by mutableStateOf(initial.explanation.orEmpty())
+}
+
+internal class EditorModel : ViewModel() {
+    var fields by mutableStateOf<QuestionFields?>(null)
+    var draft by mutableStateOf<QuizDraft?>(null)
+    var load by mutableStateOf<ImportProgress?>(null)
+        private set
+    var failure by mutableStateOf<String?>(null)
+        private set
+    var imported by mutableStateOf<ImportResult?>(null)
+    private val work = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var current: Job? = null
+
+    fun import(repository: QuizRepository, uri: Uri) {
+        if (current?.isActive == true) return
+        failure = null
+        load = ImportProgress(DocumentDetails("Документ", null), null)
+        current = work.launch {
+            try {
+                imported = withContext(Dispatchers.IO) {
+                    val worker = currentCoroutineContext()
+                    var percent: Int? = -1
+                    repository.previewImport(uri) { info ->
+                        worker.ensureActive()
+                        val next = info.fraction?.let { (it * 100).toInt() }
+                        if (next != percent) { percent = next; load = info }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w("TestHelperImport", "Document import failed", error)
+                failure = if (error.javaClass == IllegalArgumentException::class.java)
+                    error.message ?: "У документа неподдерживаемый формат"
+                else "Не удалось обработать документ. Проверьте формат файла или выберите другой."
+            } finally {
+                load = null
+            }
+        }
+    }
+
+    fun cancel() { current?.cancel() }
+    override fun onCleared() { work.cancel(); super.onCleared() }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion: (Int) -> Unit,
+                         onBack: () -> Unit, onSave: () -> Unit, error: String?) {
+    var removing by rememberSaveable { mutableStateOf<String?>(null) }
+    var preview by rememberSaveable { mutableStateOf(false) }
+    val quiz = draft.quiz
+    removing?.let { id ->
+        StudyConfirmation("Удалить вопрос?", "Изменение будет применено при сохранении теста.", "Удалить",
+            { removing = null }) {
+            onChange(quiz.copy(questions = quiz.questions.filterNot { it.id == id }))
+            removing = null
+        }
+    }
+    val actions = @Composable {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!preview) OutlinedButton(enabled = quiz.questions.size < 500, onClick = { onQuestion(-1) }) { Text("Добавить вопрос") }
+            OutlinedButton(onClick = { preview = !preview }) { Text(if (preview) "К редактированию" else "Предпросмотр") }
+            Button(onClick = onSave) { Text("Сохранить тест") }
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxHeight < 360.dp
+        Column(Modifier.fillMaxSize()) {
+            ScreenList(Modifier.weight(1f)) {
+                item {
+                    TextButton(onClick = onBack) { Text("Назад") }
+                    SectionHeading(if (preview) "Предпросмотр теста" else "Редактор теста",
+                        "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "")
+                }
+                draft.document?.let { document -> item {
+                    StudyPanel(PanelTone.SKY) {
+                        Text(documentCaption(document))
+                        Text("Найдено вопросов: ${draft.detectedCount ?: quiz.questions.size}")
+                    }
+                } }
+                if (draft.warnings.isNotEmpty()) item {
+                    var show by rememberSaveable { mutableStateOf(false) }
+                    StudyPanel(PanelTone.LAVENDER) {
+                        Text("Замечаний при импорте: ${draft.warnings.size}")
+                        TextButton(onClick = { show = !show }) { Text(if (show) "Скрыть" else "Посмотреть замечания") }
+                        if (show) draft.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+                if (compact) error?.let { item { StudyError(it) } }
+                item {
+                    if (preview) Text(quiz.title.ifBlank { "Тест без названия" }, style = MaterialTheme.typography.titleLarge)
+                    else StudyField(quiz.title, { onChange(quiz.copy(title = it.take(256))) }, "Название теста")
+                }
+                if (compact) item { actions() }
+                if (quiz.questions.isEmpty()) item {
+                    StudyPanel { Text("Добавьте первый вопрос и варианты ответа.") }
+                }
+                itemsIndexed(quiz.questions, key = { _, question -> question.id }) { index, question ->
+                    StudyPanel {
+                        Text("${index + 1}. ${question.text}", style = MaterialTheme.typography.titleMedium)
+                        if (preview) {
+                            question.options.forEachIndexed { i, value ->
+                                Text(if (i == question.correctIndex) "Правильный ответ · $value" else "• $value")
+                            }
+                            question.explanation?.let { Text(it) }
+                            question.sourceExcerpt?.let { Text("Цитата: $it", style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            Text(question.correctIndex?.let { "Ключ · ${question.options[it]}" } ?: "Ключ пока неизвестен")
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { onQuestion(index) }) { Text("Править") }
+                                TextButton(enabled = index > 0, onClick = {
+                                    onChange(quiz.copy(questions = EditorRules.move(quiz.questions, index, index - 1)))
+                                }) { Text("Выше") }
+                                TextButton(enabled = index < quiz.questions.lastIndex, onClick = {
+                                    onChange(quiz.copy(questions = EditorRules.move(quiz.questions, index, index + 1)))
+                                }) { Text("Ниже") }
+                                TextButton(onClick = { removing = question.id }) { Text("Удалить") }
+                            }
+                        }
+                    }
+                }
+            }
+            if (!compact) {
+                error?.let { StudyError(it) }
+                actions()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onApply: (QuizQuestion) -> Unit) {
+    val question = fields.initial
+    var text by fields::text
+    var options by fields::options
+    var correct by fields::correct
+    var explanation by fields::explanation
+    var failure by rememberSaveable { mutableStateOf<String?>(null) }
+    var discard by rememberSaveable { mutableStateOf(false) }
+    val dirty = text != question.text || options != question.options || correct != question.correctIndex || explanation != question.explanation.orEmpty()
+    fun back() { if (dirty) discard = true else onCancel() }
+    BackHandler { back() }
+    if (discard) StudyConfirmation("Отменить правки вопроса?", "Текст, введённый на этом экране, не сохранится.", "Отменить правки",
+        { discard = false }, onCancel)
+    ScreenList {
+        item {
+            TextButton(onClick = { back() }) { Text("Назад") }
+            SectionHeading("Вопрос", "Отметьте правильный вариант или оставьте ключ неизвестным.")
+        }
+        failure?.let { item { StudyError(it) } }
+        item { StudyField(text, { text = it.take(65_536) }, "Текст вопроса") }
+        itemsIndexed(options) { i, option ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RadioButton(selected = correct == i, onClick = { correct = i })
+                OutlinedTextField(option, { value -> options = ArrayList(options).also { it[i] = value.take(65_536) } },
+                    label = { Text("Вариант ${i + 1}") }, modifier = Modifier.weight(1f))
+            }
+        }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(enabled = options.size < 8, onClick = { options = ArrayList(options + "") }) { Text("Добавить вариант") }
+                TextButton(enabled = options.size > 2, onClick = {
+                    options = ArrayList(options.dropLast(1))
+                    if (correct?.let { it >= options.size } == true) correct = null
+                }) { Text("Убрать последний") }
+                TextButton(onClick = { correct = null }) { Text(if (correct == null) "✓ Без ключа" else "Без ключа") }
+            }
+        }
+        item { StudyField(explanation, { explanation = it.take(65_536) }, "Пояснение") }
+        item { Button(onClick = {
+            val changed = question.copy(text = text.trim(), options = options.map(String::trim),
+                correctIndex = correct, explanation = explanation.trim().ifBlank { null })
+            runCatching { EditorRules.validateQuestion(changed) }
+                .onSuccess { onApply(changed) }.onFailure { failure = it.message }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Применить") } }
+    }
+}

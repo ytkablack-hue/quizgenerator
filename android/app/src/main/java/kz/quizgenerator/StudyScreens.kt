@@ -1,263 +1,284 @@
 package kz.quizgenerator
 
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 
-@Composable
-internal fun ManualQuizScreen(onSave: (Quiz) -> Unit, onBack: () -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var question by rememberSaveable { mutableStateOf("") }
-    var options by rememberSaveable { mutableStateOf(arrayListOf("", "")) }
-    var correct by rememberSaveable { mutableStateOf<Int?>(null) }
-    var explanation by rememberSaveable { mutableStateOf("") }
-    var questions by remember { mutableStateOf(emptyList<QuizQuestion>()) }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
-
-    fun draft(): QuizQuestion {
-        require(question.isNotBlank() && options.none(String::isBlank)) { "Введите вопрос и все варианты" }
-        return QuizQuestion(UUID.randomUUID().toString(), question.trim(), options.map(String::trim),
-            correct, explanation.trim().ifEmpty { null })
-    }
-
-    StudyColumn("Создать тест вручную", onBack) {
-        StudyField(title, { title = it }, "Название")
-        questions.forEachIndexed { index, item ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${index + 1}. ${item.text}", modifier = Modifier.weight(1f))
-                TextButton(onClick = { questions = questions.filterIndexed { position, _ -> position != index } }) {
-                    Text("Убрать")
-                }
-            }
-        }
-        StudyField(question, { question = it }, "Следующий вопрос")
-        options.forEachIndexed { index, value ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(correct == index, { correct = index })
-                OutlinedTextField(value, { update -> options = ArrayList(options).also { it[index] = update } },
-                    label = { Text("Вариант ${index + 1}") }, modifier = Modifier.weight(1f))
-            }
-        }
-        Row {
-            TextButton(enabled = options.size < 8, onClick = { options = ArrayList(options).also { it.add("") } }) { Text("+ вариант") }
-            TextButton(enabled = options.size > 2, onClick = {
-                options = ArrayList(options.dropLast(1))
-                if (correct?.let { it !in options.indices } == true) correct = null
-            }) { Text("− вариант") }
-            TextButton(onClick = { correct = null }) { Text("Без ключа") }
-        }
-        StudyField(explanation, { explanation = it }, "Пояснение")
-        OutlinedButton(enabled = questions.size < 500, onClick = {
-            runCatching { questions = questions + draft() }.onSuccess {
-                question = ""; options = arrayListOf("", ""); correct = null; explanation = ""; error = null
-            }.onFailure { error = it.message }
-        }) { Text("Добавить вопрос") }
-        Button(onClick = {
-            runCatching {
-                val items = if (question.isNotBlank() || options.any(String::isNotBlank)) questions + draft() else questions
-                onSave(StudyLogic.manualQuiz(title, items))
-            }.onFailure { error = it.message }
-        }) { Text("К предварительному просмотру") }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    }
-}
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun FlashcardScreen(cards: List<Flashcard>, onSave: (List<Flashcard>) -> Boolean, onBack: () -> Unit) {
-    var selected by rememberSaveable { mutableStateOf(0) }
+    var selected by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    var form by rememberSaveable { mutableStateOf(false) }
     var front by rememberSaveable { mutableStateOf("") }
     var back by rememberSaveable { mutableStateOf("") }
-    var removing by remember { mutableStateOf<Flashcard?>(null) }
-    removing?.let { target ->
-        AlertDialog(onDismissRequest = { removing = null },
-            title = { Text("Удалить карточку?") }, text = { Text(target.front) },
-            confirmButton = { TextButton(onClick = {
-                if (onSave(cards.filterNot { it.id == target.id })) {
-                    if (editing == target.id) { editing = null; front = ""; back = "" }
-                    selected = selected.coerceAtMost((cards.size - 2).coerceAtLeast(0))
-                    flipped = false
-                    removing = null
-                }
-            }) { Text("Удалить") } },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text("Отмена") } })
+    var removing by rememberSaveable { mutableStateOf<String?>(null) }
+    var discard by rememberSaveable { mutableStateOf(false) }
+    val index = selected.coerceIn(0, cards.lastIndex.coerceAtLeast(0))
+    val card = cards.getOrNull(index)
+    fun closeForm() { form = false; editing = null; front = ""; back = "" }
+    fun leaveCards() {
+        if (!form) onBack()
+        else if (front.isNotBlank() || back.isNotBlank()) discard = true
+        else closeForm()
     }
-    val card = cards.getOrNull(selected.coerceAtMost(cards.lastIndex.coerceAtLeast(0)))
-    StudyColumn("Карточки", onBack) {
-        if (card == null) Text("Добавьте первую карточку.")
-        else {
-            Text("Карточка ${cards.indexOf(card) + 1} из ${cards.size}")
-            if (card.generatedByAi) Text("Создано ИИ")
-            Card(onClick = { flipped = !flipped }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (flipped) card.back else card.front, modifier = Modifier.padding(20.dp),
-                    style = MaterialTheme.typography.titleLarge)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { flipped = !flipped }) { Text("Перевернуть") }
-                OutlinedButton(onClick = { selected = (cards.indexOf(card) + 1) % cards.size; flipped = false }) { Text("Далее") }
-            }
-            Row {
-                TextButton(onClick = { editing = card.id; front = card.front; back = card.back }) { Text("Редактировать") }
-                TextButton(onClick = { removing = card }) { Text("Удалить") }
+    BackHandler { leaveCards() }
+    if (discard) StudyConfirmation("Отменить редактирование?", "Несохранённый текст карточки пропадёт.",
+        "Отменить", { discard = false }) { discard = false; closeForm() }
+    cards.firstOrNull { it.id == removing }?.let { target ->
+        StudyConfirmation("Удалить карточку?", target.front, "Удалить", { removing = null }) {
+            if (onSave(cards.filterNot { it.id == target.id })) {
+                if (editing == target.id) closeForm()
+                selected = index.coerceAtMost((cards.size - 2).coerceAtLeast(0))
+                flipped = false
+                removing = null
             }
         }
-        StudyField(front, { front = it }, "Лицевая сторона")
-        StudyField(back, { back = it }, "Обратная сторона")
-        Button(enabled = front.isNotBlank() && back.isNotBlank(), onClick = {
-            val id = editing
-            val ai = cards.firstOrNull { it.id == id }?.generatedByAi ?: false
-            val changed = Flashcard(id ?: UUID.randomUUID().toString(), front.trim(), back.trim(), ai)
-            if (onSave(if (id == null) cards + changed else cards.map { if (it.id == id) changed else it })) {
-                if (id == null) selected = cards.size
-                flipped = false; editing = null; front = ""; back = ""
+    }
+    ScreenList {
+        item {
+            TextButton(onClick = { leaveCards() }) { Text("Назад") }
+            SectionHeading("Карточки", "Повторяй материал в своём темпе.")
+        }
+        if (card == null) item { StudyPanel(PanelTone.LAVENDER) { Text("Добавь первую карточку.") } }
+        else {
+            item {
+                StudyPanel(if (flipped) PanelTone.SKY else PanelTone.LAVENDER, onClick = { flipped = !flipped }) {
+                    Text("Карточка ${index + 1} из ${cards.size}", style = MaterialTheme.typography.labelLarge)
+                    Text(if (flipped) "Обратная сторона" else "Лицевая сторона", style = MaterialTheme.typography.labelLarge)
+                    Box(Modifier.fillMaxWidth().heightIn(min = 125.dp).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                        Text(if (flipped) card.back else card.front, style = MaterialTheme.typography.headlineSmall)
+                    }
+                    if (card.generatedByAi) Text("Создано ИИ", style = MaterialTheme.typography.bodySmall)
+                }
             }
-        }) { Text(if (editing == null) "Добавить карточку" else "Сохранить правки") }
-        if (editing != null) TextButton(onClick = { editing = null; front = ""; back = "" }) { Text("Отменить редактирование") }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(enabled = index > 0, onClick = { selected = index - 1; flipped = false }) { Text("Предыдущая") }
+                    Button(onClick = { flipped = !flipped }) { Text("Перевернуть") }
+                    OutlinedButton(enabled = index < cards.lastIndex, onClick = { selected = index + 1; flipped = false }) { Text("Следующая") }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(enabled = !form, onClick = {
+                        editing = card.id; front = card.front; back = card.back; form = true
+                    }) { Text("Редактировать") }
+                    TextButton(onClick = { removing = card.id }) { Text("Удалить") }
+                }
+            }
+        }
+        item {
+            if (!form) Button(onClick = { form = true }) { Text("Добавить карточку") }
+            else StudyPanel {
+                Text(if (editing == null) "Новая карточка" else "Редактирование карточки", style = MaterialTheme.typography.titleMedium)
+                StudyField(front, { front = it.take(16_000) }, "Лицевая сторона")
+                StudyField(back, { back = it.take(16_000) }, "Обратная сторона")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = front.isNotBlank() && back.isNotBlank(), onClick = {
+                        val id = editing
+                        val ai = cards.firstOrNull { it.id == id }?.generatedByAi ?: false
+                        val changed = Flashcard(id ?: UUID.randomUUID().toString(), front.trim(), back.trim(), ai)
+                        if (onSave(if (id == null) cards + changed else cards.map { if (it.id == id) changed else it })) {
+                            if (id == null) selected = cards.size
+                            flipped = false
+                            closeForm()
+                        }
+                    }) { Text("Сохранить") }
+                    TextButton(onClick = { discard = true }) { Text("Отмена") }
+                }
+            }
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (List<Exam>) -> Boolean, onBack: () -> Unit) {
+internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (List<Exam>) -> Boolean) {
+    var showForm by rememberSaveable { mutableStateOf(false) }
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var title by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var topics by rememberSaveable { mutableStateOf("") }
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var links by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var calendar by rememberSaveable { mutableStateOf(false) }
+    var attemptId by rememberSaveable { mutableStateOf<String?>(null) }
+    var materials by rememberSaveable { mutableStateOf(false) }
     val today = LocalDate.now()
-    val score = data.attempts.sumOf { it.score.correct }
-    val total = data.attempts.sumOf { it.score.gradedTotal }
-    StudyColumn("Подготовка", onBack) {
-        Text("Пройдено тестов: ${data.attempts.size} · Верно: $score из $total")
-        val weak = data.attempts.groupBy(Attempt::title)
-            .mapValues { (_, attempts) -> attempts.sumOf { it.mistakes.size } }
-            .filterValues { it > 0 }.entries.sortedByDescending { it.value }.take(5)
-        if (weak.isNotEmpty()) {
-            Text("Темы для повторения", style = MaterialTheme.typography.titleMedium)
-            weak.forEach { Text("${it.key} · ошибок или пропусков: ${it.value}") }
-        }
-        data.exams.sortedBy(Exam::date).forEach { exam ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("${exam.title} · ${exam.date}", style = MaterialTheme.typography.titleMedium)
-                    val plan = StudyLogic.plan(exam, quizzes, data.attempts, today)
-                    if (plan.isEmpty()) Text(if (exam.date < today) "Дата экзамена прошла" else "Добавьте темы или тесты")
-                    plan.forEach { Text("${it.date} · ${it.topic}") }
-                    TextButton(onClick = {
-                        selectedId = exam.id; title = exam.title; date = exam.date.toString()
-                        topics = exam.topics.joinToString(", "); links = ArrayList(exam.quizIds)
-                    }) { Text("Изменить экзамен") }
+    val selectedAttempt = data.attempts.firstOrNull { it.id == attemptId }
+    BackHandler(selectedAttempt != null || showForm) {
+        if (selectedAttempt != null) attemptId = null else showForm = false
+    }
+    if (selectedAttempt != null) {
+        ScreenList {
+            item {
+                TextButton(onClick = { attemptId = null }) { Text("К истории") }
+                SectionHeading(selectedAttempt.title, displayDate(selectedAttempt.completedAt))
+            }
+            item { StudyPanel(PanelTone.LAVENDER) {
+                Text("Правильно: ${selectedAttempt.score.correct} из ${selectedAttempt.score.gradedTotal}")
+            } }
+            if (selectedAttempt.mistakes.isEmpty()) item { StudyPanel { Text("Нет ошибок или пропусков.") } }
+            items(selectedAttempt.mistakes) { mistake ->
+                StudyPanel {
+                    Text(mistake.question, style = MaterialTheme.typography.titleMedium)
+                    Text("Твой ответ · ${mistake.given ?: "Пропущен"}")
+                    Text("Правильный ответ · ${mistake.correct}")
+                    mistake.explanation?.let { Text(it) }
                 }
             }
         }
-        Text("Учебные материалы и темы", style = MaterialTheme.typography.titleMedium)
-        StudyField(title, { title = it }, "Дисциплина")
-        StudyField(date, { date = it }, "Дата (ГГГГ-ММ-ДД)")
-        StudyField(topics, { topics = it }, "Темы через запятую")
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            quizzes.forEach { quiz ->
-                OutlinedButton(onClick = {
+        return
+    }
+    if (calendar) {
+        val initial = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val picker = rememberDatePickerState(initialSelectedDateMillis = initial)
+        DatePickerDialog(onDismissRequest = { calendar = false }, confirmButton = {
+            TextButton(enabled = picker.selectedDateMillis != null, onClick = {
+                picker.selectedDateMillis?.let { date = Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate().toString() }
+                calendar = false
+            }) { Text("Выбрать") }
+        }, dismissButton = { TextButton(onClick = { calendar = false }) { Text("Отмена") } }) {
+            DatePicker(state = picker, modifier = Modifier.heightIn(max = 435.dp).verticalScroll(rememberScrollState()))
+        }
+    }
+    if (showForm) {
+        ScreenList {
+            item {
+                TextButton(onClick = { showForm = false }) { Text("К экзаменам") }
+                SectionHeading(if (selectedId == null) "Новый экзамен" else "Редактировать экзамен")
+            }
+            item { StudyField(title, { title = it.take(200) }, "Дисциплина") }
+            item {
+                OutlinedButton(onClick = { calendar = true }) { Text("Дата · $date") }
+            }
+            item { StudyField(topics, { topics = it.take(2500) }, "Темы через запятую") }
+            item {
+                TextButton(onClick = { materials = !materials }) { Text("Связанные тесты · ${links.size}") }
+            }
+            if (materials) items(quizzes, key = Quiz::id) { quiz ->
+                FilterChip(quiz.id in links, {
                     links = ArrayList(if (quiz.id in links) links - quiz.id else links + quiz.id)
-                }) { Text((if (quiz.id in links) "✓ " else "") + quiz.title) }
+                }, label = { Text(quiz.title) })
+            }
+            item {
+                Button(enabled = title.isNotBlank(), onClick = {
+                    val exam = Exam(selectedId ?: UUID.randomUUID().toString(), title.trim(), LocalDate.parse(date),
+                        topics.split(',').map(String::trim).filter(String::isNotEmpty).distinct(), links.toList())
+                    if (onSave(data.exams.filterNot { it.id == exam.id } + exam)) showForm = false
+                }) { Text("Сохранить экзамен") }
             }
         }
-        Button(enabled = title.isNotBlank(), onClick = {
-            runCatching {
-                val parsedDate = LocalDate.parse(date.trim())
-                val exam = Exam(selectedId ?: UUID.randomUUID().toString(), title.trim(), parsedDate,
-                    topics.split(',').map(String::trim).filter(String::isNotEmpty).distinct(), links.toList())
-                onSave(data.exams.filterNot { it.id == exam.id } + exam)
-            }.onSuccess { saved ->
-                if (saved) { title = ""; topics = ""; selectedId = null; links = arrayListOf(); error = null }
+        return
+    }
+    val weak = data.attempts.groupBy(Attempt::title).mapValues { (_, items) -> items.sumOf { it.mistakes.size } }
+        .filterValues { it > 0 }.entries.sortedByDescending { it.value }.take(5)
+    ScreenList {
+        item { SectionHeading("Подготовка", "Экзамены, повторение и результаты занятий.") }
+        item { StudyPanel(PanelTone.LAVENDER) {
+            Text("Экзамены", style = MaterialTheme.typography.titleLarge)
+            if (data.exams.isEmpty()) Text("Добавь дисциплину и дату, чтобы составить план повторения.")
+            Button(onClick = {
+                selectedId = null; title = ""; date = today.toString(); topics = ""; links = arrayListOf(); materials = false; showForm = true
+            }) { Text("Добавить экзамен") }
+        } }
+        items(data.exams.sortedBy(Exam::date), key = Exam::id) { exam ->
+            StudyPanel {
+                Text(exam.title, style = MaterialTheme.typography.titleLarge)
+                Text("${exam.date} · ${examCountdown(exam.date, today)}")
+                val linkedTitles = quizzes.filter { it.id in exam.quizIds }.map(Quiz::title)
+                if (linkedTitles.isNotEmpty()) Text("Материалы · ${linkedTitles.joinToString(", ")}")
+                val plan = StudyLogic.plan(exam, quizzes, data.attempts, today)
+                if (plan.isNotEmpty()) {
+                    Text("План повторения", style = MaterialTheme.typography.titleSmall)
+                    plan.forEach { Text("${it.date} · ${it.topic}") }
+                }
+                TextButton(onClick = {
+                    selectedId = exam.id; title = exam.title; date = exam.date.toString()
+                    topics = exam.topics.joinToString(", "); links = ArrayList(exam.quizIds); materials = false; showForm = true
+                }) { Text("Изменить экзамен") }
             }
-                .onFailure { error = "Проверьте дату экзамена (ГГГГ-ММ-ДД)" }
-        }) { Text(if (selectedId == null) "Создать экзамен" else "Сохранить экзамен") }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("История занятий", style = MaterialTheme.typography.titleMedium)
-        data.attempts.takeLast(20).asReversed().forEach { attempt ->
-            val day = Instant.ofEpochMilli(attempt.completedAt).atZone(ZoneId.systemDefault()).toLocalDate()
-            Text("$day · ${attempt.title} · ${attempt.score.correct}/${attempt.score.gradedTotal}")
-            attempt.mistakes.forEach { mistake ->
-                Text("${mistake.question} · Правильно: ${mistake.correct}")
-                mistake.explanation?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+        if (weak.isNotEmpty()) item { StudyPanel(PanelTone.SKY) {
+            Text("Темы для повторения", style = MaterialTheme.typography.titleMedium)
+            weak.forEach { Text("${it.key} · ошибок и пропусков: ${it.value}") }
+        } }
+        item { SectionHeading("История занятий", if (data.attempts.isEmpty()) "Здесь появятся пройденные тесты." else null) }
+        items(data.attempts.asReversed(), key = Attempt::id) { attempt ->
+            StudyPanel {
+                Text(attempt.title, style = MaterialTheme.typography.titleMedium)
+                Text("${displayDate(attempt.completedAt)} · ${attempt.score.correct} из ${attempt.score.gradedTotal}")
+                TextButton(onClick = { attemptId = attempt.id }) { Text("Разобрать ошибки") }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -> Boolean, onBack: () -> Unit) {
     var value by remember(settings) { mutableStateOf(settings) }
     var limit by rememberSaveable { mutableStateOf(settings.limit.toString()) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
     StudyColumn("Настройки", onBack) {
-        Text("TestHelper · подготовка к экзаменам")
-        StudyField(limit, { limit = it.filter(Char::isDigit).take(3) }, "Вопросов на тест (0 — все)")
-        Preference("Случайный порядок вопросов", value.shuffleQuestions) { value = value.copy(shuffleQuestions = it) }
-        Preference("Перемешивать варианты", value.shuffleOptions) { value = value.copy(shuffleOptions = it) }
-        Preference("Показывать подсказки", value.showHints) { value = value.copy(showHints = it) }
-        Preference("Показывать ключ после теста", value.showAnswers) { value = value.copy(showAnswers = it) }
-        Preference("Тёмная тема", value.dark) { value = value.copy(dark = it) }
-        Text("Таймер по умолчанию")
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(0, 10, 20, 40).forEach { minutes ->
-                OutlinedButton(onClick = { value = value.copy(minutes = minutes) }) {
-                    Text((if (value.minutes == minutes) "✓ " else "") + "$minutes мин")
+        StudyPanel {
+            Text("Тема оформления", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("system" to "Как в системе", "light" to "Светлая", "dark" to "Тёмная").forEach { (key, label) ->
+                    FilterChip(value.theme == key, { value = value.copy(theme = key, dark = key == "dark") }, label = { Text(label) })
                 }
             }
         }
-        Text(if (value.server.isBlank()) "ИИ: сервер не задан" else "ИИ: сервер настроен, статус доступен в разделе ИИ")
-        StudyField(value.server, { value = value.copy(server = it.trim()) }, "Адрес backend")
-        OutlinedTextField(value.accessToken, { value = value.copy(accessToken = it.trim()) },
-            label = { Text("Код доступа к backend (если задан)") }, modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation())
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        StudyPanel {
+            Text("Прохождение тестов", style = MaterialTheme.typography.titleMedium)
+            StudyField(limit, { limit = it.filter(Char::isDigit).take(3) }, "Число вопросов (0 — все)")
+            Preference("Перемешивать вопросы", value.shuffleQuestions) { value = value.copy(shuffleQuestions = it) }
+            Preference("Перемешивать варианты", value.shuffleOptions) { value = value.copy(shuffleOptions = it) }
+            Preference("Показывать подсказки", value.showHints) { value = value.copy(showHints = it) }
+            Preference("Показывать ключ после теста", value.showAnswers) { value = value.copy(showAnswers = it) }
+            Text("Таймер по умолчанию")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0, 10, 20, 40).forEach { minutes ->
+                    FilterChip(value.minutes == minutes, { value = value.copy(minutes = minutes) },
+                        label = { Text(if (minutes == 0) "Без таймера" else "$minutes мин") })
+                }
+            }
+        }
+        StudyPanel(PanelTone.SKY) {
+            Text("Интеграция с ИИ", style = MaterialTheme.typography.titleMedium)
+            Text(if (value.server.isBlank()) "Сервер пока не настроен." else "Проверь подключение в разделе «Создать с ИИ».")
+            StudyField(value.server, { value = value.copy(server = it.trim()) }, "Адрес сервера")
+            OutlinedTextField(value.accessToken, { value = value.copy(accessToken = it.trim()) },
+                label = { Text("Код доступа к серверу") }, modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation())
+        }
+        error?.let { StudyError(it) }
         Button(onClick = {
             runCatching {
                 if (value.server.isNotBlank()) AiClient.baseUri(value.server)
                 if (onSave(value.copy(limit = (limit.toIntOrNull() ?: 0).coerceIn(0, 500)))) onBack()
             }.onFailure { error = it.message }
-        }) {
-            Text("Сохранить настройки")
-        }
+        }) { Text("Сохранить настройки") }
     }
 }
 
 @Composable
-private fun Preference(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun Preference(label: String, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f))
-        Switch(checked, onChange)
+        Switch(enabled, onChange)
     }
 }
 
@@ -268,9 +289,10 @@ internal fun StudyField(value: String, onChange: (String) -> Unit, label: String
 
 @Composable
 internal fun StudyColumn(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        TextButton(onClick = onBack) { Text("Назад") }
-        Text(title, style = MaterialTheme.typography.headlineSmall)
+    BackHandler(onBack = onBack)
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading(title)
         content()
     }
 }

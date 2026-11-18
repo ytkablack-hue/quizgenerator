@@ -4,13 +4,17 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-data class ImportResult(val quiz: Quiz, val warnings: List<String>)
+internal data class DocumentDetails(val name: String, val bytes: Long?)
+internal data class ImportResult(val quiz: Quiz, val warnings: List<String>, val document: DocumentDetails)
+internal data class ImportProgress(val document: DocumentDetails, val fraction: Float?)
 
 class QuizRepository(private val context: Context) {
     private val directory get() = File(context.filesDir, "quiz_banks")
@@ -24,66 +28,100 @@ class QuizRepository(private val context: Context) {
         return listOf(demo) + imported
     }
 
-    /** Imports JSON, plain text and text-based DOCX locally, without contacting a server. */
-    private fun readFile(uri: Uri): Pair<String, ByteArray> {
+    internal fun describe(uri: Uri): DocumentDetails =
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                if (!cursor.moveToFirst()) null else DocumentDetails(
+                    cursor.getString(0)?.take(256) ?: "Документ",
+                    if (cursor.isNull(1)) null else cursor.getLong(1).takeIf { it >= 0 }
+                )
+            } ?: DocumentDetails("Документ", null)
+
+    fun modifiedAt(quiz: Quiz): Long? =
+        if (canDelete(quiz)) File(directory, "${quiz.id}.json").lastModified().takeIf { it > 0 } else null
+
+    private fun <T> withDocument(uri: Uri, action: (InputStream) -> T): T {
         val stream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Не удалось открыть файл")
-        val bytes = stream.use { input ->
-            val result = ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            var total = 0
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                total += count
-                require(total <= 12_000_000) { "Файл больше 12 МБ" }
-                result.write(buffer, 0, count)
-            }
-            result.toByteArray()
-        }
-        val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
-            } ?: "Тест"
-        return filename to bytes
+        return stream.buffered().use(action)
     }
 
-    fun readStudyMaterial(uri: Uri): String {
-        val (filename, bytes) = readFile(uri)
-        val material = if (filename.endsWith(".docx", ignoreCase = true)) {
-            DocxTextExtractor.extract(bytes, context.cacheDir)
-        } else decodeText(bytes)
-        return material.trim().also {
+    private fun bytes(input: InputStream, size: Long?, progress: (Float?) -> Unit): ByteArray {
+        val result = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            require(result.size() + count <= 12_000_000) { "TXT или JSON больше 12 МБ. Разделите документ." }
+            result.write(buffer, 0, count)
+            progress(size?.takeIf { it > 0 }?.let { (.9f * result.size() / it).coerceIn(0f, .9f) })
+        }
+        return result.toByteArray()
+    }
+
+    private fun format(input: InputStream, name: String): String {
+        val suffix = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        input.mark(4)
+        val prefix = ByteArray(4)
+        var length = 0
+        while (length < prefix.size) {
+            val n = input.read(prefix, length, prefix.size - length)
+            if (n < 0) break
+            length += n
+        }
+        input.reset()
+        return when {
+            suffix == "pdf" || (length == 4 && prefix.contentEquals("%PDF".toByteArray())) -> "pdf"
+            suffix == "docx" || (length >= 2 && prefix[0] == 0x50.toByte() && prefix[1] == 0x4b.toByte()) -> "docx"
+            else -> suffix
+        }
+    }
+
+    fun readStudyMaterial(uri: Uri): String = withDocument(uri) { stream ->
+        val details = describe(uri)
+        val material = when (format(stream, details.name)) {
+            "docx" -> DocxTextExtractor.extract(stream, context.cacheDir, 12_001)
+            "pdf" -> throw IllegalArgumentException("Для учебного материала выберите TXT или DOCX")
+            else -> decodeText(bytes(stream, details.bytes, {}))
+        }
+        material.trim().also {
             require(it.isNotEmpty()) { "Файл не содержит учебного текста" }
             require(it.length <= 12_000) { "Учебный материал длиннее 12 000 символов" }
         }
     }
 
-    fun importQuiz(uri: Uri): ImportResult {
-        val (filename, bytes) = readFile(uri)
-        val lowerName = filename.lowercase()
-        val result = when {
-            lowerName.endsWith(".pdf") || bytes.copyOfRange(0, minOf(4, bytes.size)).contentEquals("%PDF".toByteArray()) ->
-                throw IllegalArgumentException("Импорт PDF пока не готов. Выбери Word (.docx), TXT или JSON")
-            lowerName.endsWith(".docx") || bytes.take(2).toByteArray().contentEquals(byteArrayOf(0x50, 0x4b)) -> {
-                val content = DocxTextExtractor.extract(bytes, context.cacheDir)
-                val extracted = QuizTextParser.parse(content, filename.substringBeforeLast('.'))
-                ImportResult(extracted.quiz, extracted.warnings)
+    internal fun previewImport(uri: Uri, progress: (ImportProgress) -> Unit): ImportResult = withDocument(uri) { stream ->
+        val details = describe(uri)
+        val format = format(stream, details.name)
+        val title = details.name.substringBeforeLast('.')
+        fun report(fraction: Float?) = progress(ImportProgress(details, fraction))
+        report(0f)
+        val counted = object : FilterInputStream(stream) {
+            var total = 0L
+            override fun read(): Int = super.read().also { if (it >= 0) total++ }
+            override fun read(b: ByteArray, off: Int, len: Int): Int =
+                super.read(b, off, len).also { if (it > 0) total += it }
+        }
+        val parsed = when (format) {
+            "pdf" -> throw IllegalArgumentException("PDF пока не поддерживается. Выберите TXT, DOCX или JSON.")
+            "docx" -> QuizTextParser.parseFrom(title) { consume ->
+                DocxTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
             }
             else -> {
-                val decoded = decodeText(bytes)
-                if (lowerName.endsWith(".json") || decoded.trimStart().startsWith("{")) {
-                    ImportResult(QuizJson.parse(decoded), emptyList())
-                } else {
-                    val extracted = QuizTextParser.parse(decoded, filename.substringBeforeLast('.'))
-                    ImportResult(extracted.quiz, extracted.warnings)
-                }
+                val decoded = decodeText(bytes(counted, details.bytes, ::report))
+                if (format == "json" || decoded.trimStart().startsWith("{")) ParsedQuiz(QuizJson.parse(decoded), emptyList())
+                else QuizTextParser.parse(decoded, title)
             }
         }
-        val imported = result.quiz.copy(id = UUID.randomUUID().toString())
-        persist(imported)
-        return result.copy(quiz = imported)
+        report(1f)
+        ImportResult(parsed.quiz, parsed.warnings, details.copy(bytes = counted.total))
     }
+
+    private fun decodeText(bytes: ByteArray): String = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString().removePrefix("\uFEFF")
 
     /** Persist the manually reviewed answer key; keep the read-only demo quiz intact. */
     fun saveQuiz(quiz: Quiz): Quiz {
@@ -110,12 +148,6 @@ class QuizRepository(private val context: Context) {
         val file = File(directory, "${quiz.id}.json")
         check(!file.exists() || file.delete()) { "Не удалось удалить тест" }
     }
-
-    private fun decodeText(bytes: ByteArray): String = StandardCharsets.UTF_8.newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT)
-        .onUnmappableCharacter(CodingErrorAction.REPORT)
-        .decode(ByteBuffer.wrap(bytes))
-        .toString().removePrefix("\uFEFF")
 
     private fun persist(imported: Quiz) {
         require(runCatching { UUID.fromString(imported.id) }.isSuccess) { "Неверный ID теста" }

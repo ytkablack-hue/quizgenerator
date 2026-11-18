@@ -42,7 +42,8 @@ internal class StudyStore(private val file: File) {
             settings = with(settings) {
                 StudySettings(optInt("limit"), optBoolean("shuffleQuestions"), optBoolean("shuffleOptions"),
                     optBoolean("showHints", true), optBoolean("showAnswers", true), optInt("minutes"),
-                    optBoolean("dark"), optString("server"), optString("accessToken"))
+                    optBoolean("dark"), optString("server"), optString("accessToken"),
+                    optString("theme", if (optBoolean("dark")) "dark" else "system"))
             }
         )
     }
@@ -64,7 +65,7 @@ internal class StudyStore(private val file: File) {
         })
         root.put("settings", with(data.settings) {
             JSONObject().put("limit", limit).put("shuffleQuestions", shuffleQuestions).put("shuffleOptions", shuffleOptions)
-                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("server", server).put("accessToken", accessToken)
+                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("server", server).put("accessToken", accessToken).put("theme", theme)
         })
         atomicWrite(file, root.toString())
     }
