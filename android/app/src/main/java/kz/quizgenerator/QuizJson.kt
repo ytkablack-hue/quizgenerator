@@ -2,10 +2,13 @@ package kz.quizgenerator
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 object QuizJson {
     fun parse(source: String): Quiz {
-        val root = JSONObject(source)
+        val input = JSONTokener(source)
+        val root = JSONObject(input)
+        require(input.nextClean() == '\u0000') { "После теста остались лишние данные" }
         val id = root.getString("id").trim()
         val title = root.getString("title").trim()
         require(id.isNotEmpty() && title.isNotEmpty()) { "Укажите id и название теста" }
@@ -30,7 +33,11 @@ object QuizJson {
             val correctIndex = if (!item.has("correctIndex") || item.isNull("correctIndex")) {
                 null
             } else {
-                item.getInt("correctIndex")
+                val number = item.get("correctIndex")
+                require(number is Number && number.toDouble() == number.toInt().toDouble()) {
+                    "Индекс правильного ответа должен быть целым числом"
+                }
+                number.toInt()
             }
             require(correctIndex == null || correctIndex in options.indices) { "Неверный индекс правильного ответа" }
             val explanation = if (!item.has("explanation") || item.isNull("explanation")) {

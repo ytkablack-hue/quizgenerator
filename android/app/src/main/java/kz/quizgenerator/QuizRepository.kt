@@ -60,7 +60,7 @@ class QuizRepository(private val context: Context) {
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes))
                     .toString().removePrefix("\uFEFF")
-                if (decoded.trimStart().startsWith("{")) {
+                if (lowerName.endsWith(".json") || decoded.trimStart().startsWith("{")) {
                     ImportResult(QuizJson.parse(decoded), emptyList())
                 } else {
                     val extracted = QuizTextParser.parse(decoded, filename.substringBeforeLast('.'))

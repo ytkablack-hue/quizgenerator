@@ -1,6 +1,8 @@
 package kz.quizgenerator
 
 import android.os.Bundle
+import android.os.SystemClock
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,10 +56,11 @@ private enum class Page { LIBRARY, REVIEW, EDIT, QUIZ, RESULTS }
 @Composable
 private fun QuizGeneratorApp(repository: QuizRepository) {
     var quizzes by remember { mutableStateOf(repository.listQuizzes()) }
-    var page by remember { mutableStateOf(Page.LIBRARY) }
-    var currentQuiz by remember { mutableStateOf<Quiz?>(null) }
-    var questionIndex by remember { mutableStateOf(0) }
-    var answers by remember { mutableStateOf<List<Int?>>(emptyList()) }
+    var page by rememberSaveable { mutableStateOf(Page.LIBRARY) }
+    var quizId by rememberSaveable { mutableStateOf<String?>(null) }
+    val currentQuiz = quizzes.firstOrNull { it.id == quizId }
+    var questionIndex by rememberSaveable { mutableStateOf(0) }
+    var answers by rememberSaveable { mutableStateOf(arrayListOf<Int?>()) }
     var importError by remember { mutableStateOf<String?>(null) }
     var importWarnings by remember { mutableStateOf<List<String>>(emptyList()) }
     var editingIndex by remember { mutableStateOf(0) }
@@ -66,18 +69,28 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
     var draftCorrect by remember { mutableStateOf<Int?>(null) }
     var draftExplanation by remember { mutableStateOf("") }
     var editError by remember { mutableStateOf<String?>(null) }
-    var timerMinutes by remember { mutableStateOf(0) }
-    var remainingSeconds by remember { mutableStateOf(0) }
-    var timeExpired by remember { mutableStateOf(false) }
+    var timerMinutes by rememberSaveable { mutableStateOf(0) }
+    var deadline by rememberSaveable { mutableStateOf(0L) }
+    var remainingSeconds by remember(deadline) {
+        mutableStateOf(QuizTimer.secondsLeft(deadline, SystemClock.elapsedRealtime()))
+    }
+    var timeExpired by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(page, currentQuiz?.id) {
-        if (page == Page.QUIZ && timerMinutes > 0) {
-            while (remainingSeconds > 0) {
-                delay(1000)
-                remainingSeconds--
+    fun finishQuiz() {
+        timeExpired = QuizTimer.expired(deadline, SystemClock.elapsedRealtime())
+        page = Page.RESULTS
+    }
+
+    LaunchedEffect(page, deadline) {
+        if (page == Page.EDIT && draftOptions.isEmpty()) page = Page.REVIEW
+        while (page == Page.QUIZ && deadline != 0L) {
+            val now = SystemClock.elapsedRealtime()
+            remainingSeconds = QuizTimer.secondsLeft(deadline, now)
+            if (QuizTimer.expired(deadline, now)) {
+                finishQuiz()
+                break
             }
-            timeExpired = true
-            page = Page.RESULTS
+            delay(250)
         }
     }
 
@@ -86,7 +99,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
             runCatching {
                 val imported = repository.importQuiz(uri)
                 quizzes = repository.listQuizzes()
-                currentQuiz = imported.quiz
+                quizId = imported.quiz.id
                 importWarnings = imported.warnings
                 importError = null
                 page = Page.REVIEW
@@ -98,9 +111,10 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
 
     fun returnHome() {
         page = Page.LIBRARY
-        currentQuiz = null
+        quizId = null
         questionIndex = 0
-        answers = emptyList()
+        deadline = 0L
+        answers = arrayListOf()
     }
 
     fun openEditor(index: Int, question: QuizQuestion) {
@@ -134,7 +148,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                     ) {
                         items(quizzes, key = { it.id }) { quiz ->
                             Card(onClick = {
-                                currentQuiz = quiz
+                                quizId = quiz.id
                                 importWarnings = emptyList()
                                 page = Page.REVIEW
                             }) {
@@ -188,8 +202,8 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                     }
                     Button(onClick = {
                         questionIndex = 0
-                        answers = List(quiz.questions.size) { null }
-                        remainingSeconds = timerMinutes * 60
+                        answers = ArrayList(List(quiz.questions.size) { null })
+                        deadline = QuizTimer.deadline(SystemClock.elapsedRealtime(), timerMinutes)
                         timeExpired = false
                         page = Page.QUIZ
                     }, modifier = Modifier.fillMaxWidth()) { Text("Начать тест") }
@@ -246,7 +260,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                             )
                             val newQuestions = quiz.questions.toMutableList().also { it[editingIndex] = updated }
                             val saved = repository.saveQuiz(quiz.copy(questions = newQuestions))
-                            currentQuiz = saved
+                            quizId = saved.id
                             quizzes = repository.listQuizzes()
                             editError = null
                             page = Page.REVIEW
@@ -271,7 +285,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                                 modifier = Modifier.fillMaxWidth().selectable(
                                     selected = answers[questionIndex] == optionIndex,
                                     onClick = {
-                                        answers = answers.toMutableList().also { it[questionIndex] = optionIndex }
+                                        answers = ArrayList(answers).also { it[questionIndex] = optionIndex }
                                     }
                                 ).padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -279,7 +293,7 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                                 RadioButton(
                                     selected = answers[questionIndex] == optionIndex,
                                     onClick = {
-                                        answers = answers.toMutableList().also { it[questionIndex] = optionIndex }
+                                        answers = ArrayList(answers).also { it[questionIndex] = optionIndex }
                                     }
                                 )
                                 Text(optionText, modifier = Modifier.padding(start = 8.dp))
@@ -298,7 +312,8 @@ private fun QuizGeneratorApp(repository: QuizRepository) {
                             enabled = questionIndex > 0
                         ) { Text("Назад") }
                         Button(onClick = {
-                            if (questionIndex == quiz.questions.lastIndex) page = Page.RESULTS
+                            if (questionIndex == quiz.questions.lastIndex ||
+                                QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finishQuiz()
                             else questionIndex++
                         }) {
                             Text(if (questionIndex == quiz.questions.lastIndex) "Завершить" else "Далее")
