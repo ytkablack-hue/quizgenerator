@@ -23,6 +23,20 @@ class DocxTextExtractorTest {
         assertEquals("1. Сұрақ?\nA) Көкшетау\nB) Астана", DocxTextExtractor.extract(docx(xml)))
     }
 
+    @Test fun rejectsArchiveWithoutEndOfCentralDirectory() {
+        val archive = docx("""<w:p xmlns:w="urn:word"><w:t>Текст</w:t></w:p>""")
+        assertEquals("Текст", DocxTextExtractor.extract(archive))
+        assertThrows(IllegalArgumentException::class.java) {
+            DocxTextExtractor.extract(archive.copyOf(archive.size - 22))
+        }
+    }
+
+    @Test fun rejectsEmptyOrDamagedArchives() {
+        for (bytes in listOf(byteArrayOf(), byteArrayOf(0x50, 0x4b))) {
+            assertThrows(IllegalArgumentException::class.java) { DocxTextExtractor.extract(bytes) }
+        }
+    }
+
     @Test fun rejectsExternalEntities() {
         val xml = """<!DOCTYPE root [<!ENTITY sample SYSTEM "file:///etc/passwd">]><root/>"""
         assertThrows(IllegalArgumentException::class.java) { DocxTextExtractor.extract(docx(xml)) }

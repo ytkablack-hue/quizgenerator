@@ -56,8 +56,9 @@ object QuizTextParser {
                 val raw = draft.answer!!.trim().trimEnd('.', ')').uppercase(Locale.ROOT)
                 index = labels.indexOf(raw).takeIf { it >= 0 }
                     ?: raw.toIntOrNull()?.minus(1)?.takeIf { it in draft.options.indices }
-                    ?: draft.options.indexOfFirst { it.text.equals(draft.answer!!.trim(), ignoreCase = true) }
-                        .takeIf { it >= 0 }
+                    ?: draft.options.withIndex()
+                        .filter { (_, option) -> option.text.equals(draft.answer!!.trim(), ignoreCase = true) }
+                        .singleOrNull()?.index
                 if (index == null) warnings += "Вопрос ${draft.number}: ключ «${draft.answer}» не распознан; проверь ответ вручную"
             } else if (marked.size == 1) {
                 index = marked.single()

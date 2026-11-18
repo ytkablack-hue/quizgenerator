@@ -39,6 +39,20 @@ class QuizTextParserTest {
         assertEquals("Көкшетау", result.quiz.questions[0].options[2])
     }
 
+    @Test fun answerTextMatchingTwoOptionsKeepsKeyUnknown() {
+        val source = """
+            1. Вопрос?
+            А) Да
+            Б) Да
+            Ответ: Да
+        """.trimIndent()
+        val result = QuizTextParser.parse(source, "Пример")
+        assertNull(result.quiz.questions.single().correctIndex)
+        assertTrue(result.warnings.any { it.contains("не распознан") })
+        val explicit = QuizTextParser.parse(source.replace("Ответ: Да", "Ответ: Б"), "Пример")
+        assertEquals(1, explicit.quiz.questions.single().correctIndex)
+    }
+
     @Test fun unresolvedAnswerIsNeverGuessed() {
         val result = QuizTextParser.parse("""
             1) О каком свойстве идёт речь?

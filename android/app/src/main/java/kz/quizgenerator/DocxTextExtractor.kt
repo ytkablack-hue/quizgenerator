@@ -4,32 +4,44 @@ import org.xml.sax.Attributes
 import org.xml.sax.helpers.DefaultHandler
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.util.zip.ZipInputStream
+import java.io.File
+import java.util.zip.CRC32
+import java.util.zip.ZipException
+import java.util.zip.ZipFile
 import javax.xml.parsers.SAXParserFactory
 
 /** Extracts paragraphs from the document body of a .docx file without a network or AI. */
 object DocxTextExtractor {
-    fun extract(bytes: ByteArray): String {
-        var documentXml: ByteArray? = null
-        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (entry.name == "word/document.xml") {
+    fun extract(bytes: ByteArray, cacheDirectory: File? = null): String {
+        val archive = File.createTempFile("quiz-word-", ".docx", cacheDirectory)
+        val xml = try {
+            archive.writeBytes(bytes)
+            ZipFile(archive).use { zip ->
+                val entry = zip.getEntry("word/document.xml")
+                    ?: throw IllegalArgumentException("В Word-файле нет документа")
+                require(entry.size in 0..3_000_000) { "Текст Word превышает 3 МБ" }
+                zip.getInputStream(entry).use { input ->
                     val output = ByteArrayOutputStream()
                     val buffer = ByteArray(8192)
                     while (true) {
-                        val count = zip.read(buffer)
+                        val count = input.read(buffer)
                         if (count < 0) break
                         require(output.size() + count <= 3_000_000) { "Текст Word превышает 3 МБ" }
                         output.write(buffer, 0, count)
                     }
-                    documentXml = output.toByteArray()
-                    break
+                    output.toByteArray().also { content ->
+                        val crc = CRC32().apply { update(content) }
+                        require(content.size.toLong() == entry.size && crc.value == entry.crc) {
+                            "Повреждённый файл Word"
+                        }
+                    }
                 }
-                zip.closeEntry()
             }
+        } catch (error: ZipException) {
+            throw IllegalArgumentException("Повреждённый файл Word", error)
+        } finally {
+            archive.delete()
         }
-        val xml = documentXml ?: throw IllegalArgumentException("В Word-файле нет документа")
         val xmlText = String(xml, Charsets.UTF_8)
         require(!xmlText.contains("<!DOCTYPE", ignoreCase = true) &&
             !xmlText.contains("<!ENTITY", ignoreCase = true)) { "Небезопасное содержимое Word" }

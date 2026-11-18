@@ -50,7 +50,7 @@ class QuizRepository(private val context: Context) {
             lowerName.endsWith(".pdf") || bytes.copyOfRange(0, minOf(4, bytes.size)).contentEquals("%PDF".toByteArray()) ->
                 throw IllegalArgumentException("Импорт PDF пока не готов. Выбери Word (.docx), TXT или JSON")
             lowerName.endsWith(".docx") || bytes.take(2).toByteArray().contentEquals(byteArrayOf(0x50, 0x4b)) -> {
-                val content = DocxTextExtractor.extract(bytes)
+                val content = DocxTextExtractor.extract(bytes, context.cacheDir)
                 val extracted = QuizTextParser.parse(content, filename.substringBeforeLast('.'))
                 ImportResult(extracted.quiz, extracted.warnings)
             }
