@@ -32,22 +32,33 @@ object QuizTextParser {
         var explanation: String? = null
     }
 
-    fun parse(source: String, title: String): ParsedQuiz {
-        require(source.length <= 2_000_000) { "Документ слишком большой для распознавания" }
+    fun parse(source: String, title: String): ParsedQuiz =
+        parseFrom(title) { consume -> source.lineSequence().forEach(consume) }
+
+    internal fun parseFrom(title: String, read: ((String) -> Unit) -> Unit): ParsedQuiz {
+        var seen = 0L
         val warnings = mutableListOf<String>()
+        var omittedWarnings = 0
+        fun warning(value: String) {
+            if (warnings.size < 100) warnings.add(value.take(400)) else omittedWarnings++
+        }
         val parsedQuestions = mutableListOf<QuizQuestion>()
         var current: QuestionDraft? = null
         var field = "question"
+        fun append(existing: String, next: String): String {
+            require(existing.length + next.length < 65_536) { "Вопрос, ответ или пояснение слишком длинные. Разделите документ." }
+            return "$existing $next"
+        }
 
         fun flush() {
             val draft = current ?: return
             if (draft.options.size !in 2..8 || draft.text.isBlank()) {
-                warnings += "Вопрос ${draft.number} пропущен: нужен текст и 2–8 вариантов ответа"
+                warning("Вопрос ${draft.number} пропущен: нужен текст и 2–8 вариантов ответа")
                 return
             }
             val labels = draft.options.map { it.label }
             if (labels.distinct().size != labels.size) {
-                warnings += "Вопрос ${draft.number} пропущен: повторяются обозначения вариантов"
+                warning("Вопрос ${draft.number} пропущен: повторяются обозначения вариантов")
                 return
             }
             val marked = draft.options.indices.filter { draft.options[it].marked }
@@ -59,12 +70,13 @@ object QuizTextParser {
                     ?: draft.options.withIndex()
                         .filter { (_, option) -> option.text.equals(draft.answer!!.trim(), ignoreCase = true) }
                         .singleOrNull()?.index
-                if (index == null) warnings += "Вопрос ${draft.number}: ключ «${draft.answer}» не распознан; проверь ответ вручную"
+                if (index == null) warning("Вопрос ${draft.number}: ключ «${draft.answer.orEmpty().take(100)}» не распознан; проверь ответ вручную")
             } else if (marked.size == 1) {
                 index = marked.single()
             } else if (marked.size > 1) {
-                warnings += "Вопрос ${draft.number}: отмечено несколько правильных вариантов"
+                warning("Вопрос ${draft.number}: отмечено несколько правильных вариантов")
             }
+            require(parsedQuestions.size < 500) { "В документе больше 500 вопросов. Разделите его на части." }
             parsedQuestions += QuizQuestion(
                 id = UUID.randomUUID().toString(),
                 text = draft.text.trim(),
@@ -74,17 +86,20 @@ object QuizTextParser {
             )
         }
 
-        source.replace("\r\n", "\n").replace('\r', '\n').lineSequence().forEach { rawLine ->
+        read { rawLine ->
+            seen += rawLine.length.toLong() + 1
+            require(seen <= 8_000_000) { "В документе больше 8 млн символов текста. Разделите его на части." }
             val line = rawLine.trim()
-            if (line.isBlank()) return@forEach
+            if (line.isBlank()) return@read
             val questionMatch = namedQuestion.matchEntire(line) ?: numberedQuestion.matchEntire(line)
             if (questionMatch != null) {
                 flush()
                 current = QuestionDraft(questionMatch.groupValues[1], questionMatch.groupValues[2])
                 field = "question"
-                return@forEach
+                return@read
             }
-            val draft = current ?: return@forEach
+            val draft = current ?: return@read
+            if (draft.options.size > 8) return@read
             val optionMatch = option.matchEntire(line)
             val answerMatch = answer.matchEntire(line)
             val explanationMatch = explanation.matchEntire(line)
@@ -106,12 +121,12 @@ object QuizTextParser {
                     field = "explanation"
                 }
                 field == "explanation" -> draft.explanation =
-                    (draft.explanation.orEmpty() + " " + line).trim()
+                    append(draft.explanation.orEmpty(), line).trim()
                 field == "option" && draft.options.isNotEmpty() -> {
                     val previous = draft.options.last()
-                    previous.text += " " + line
+                    previous.text = append(previous.text, line)
                 }
-                field == "question" -> draft.text += " " + line
+                field == "question" -> draft.text = append(draft.text, line)
             }
         }
         flush()
@@ -119,7 +134,8 @@ object QuizTextParser {
         require(parsedQuestions.isNotEmpty()) {
             "Вопросы не найдены. Нужны номера 1., 2. и варианты A), B) или А), Б)."
         }
-        require(parsedQuestions.size <= 500) { "Больше 500 вопросов в одном тесте не поддерживается" }
+
+        if (omittedWarnings > 0) warnings.add("Других замечаний: $omittedWarnings")
         return ParsedQuiz(
             Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, parsedQuestions),
             warnings
