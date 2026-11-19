@@ -1,0 +1,15 @@
+.build-tools/
+.wrapper-bootstrap-*/
+.gradle/
+.kotlin/
+build/
+sdk/
+jdk-*/
+gradle-*/
+local.properties
+key.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+*.zip
