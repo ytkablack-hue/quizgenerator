@@ -20,7 +20,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
-                         onEdit: () -> Unit, onStart: () -> Unit) {
+                         onEdit: () -> Unit, onStart: () -> Unit, onCards: () -> Unit) {
     ScreenList {
         item { SectionHeading(quiz.title, "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "") }
         item {
@@ -35,15 +35,18 @@ internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
             }
         }
         item {
+            val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
+            if (inferred > 0) Text("Предположительных ключей: $inferred. Они исключены из оценки до ручного подтверждения.")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onStart) { Text("Начать тест") }
                 OutlinedButton(onClick = onEdit) { Text("Редактировать") }
+                OutlinedButton(onClick = onCards) { Text("Создать карточки") }
             }
         }
         items(quiz.questions, key = { it.id }) { question ->
             StudyPanel {
                 Text(question.text, style = MaterialTheme.typography.titleMedium)
-                Text(question.correctIndex?.let { "Ключ · ${question.options[it]}" } ?: "Вопрос без ключа")
+                Text(question.evidence.label + (question.correctIndex?.let { " · ${question.options[it]}" } ?: ""))
             }
         }
     }
@@ -127,7 +130,7 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
                            repeat: () -> Unit, library: () -> Unit) {
     val score = QuizScorer.score(quiz, answers)
     val percent = if (score.gradedTotal > 0) (100f * score.correct / score.gradedTotal).roundToInt() else null
-    val missed = quiz.questions.indices.filter { quiz.questions[it].correctIndex != null && answers[it] != quiz.questions[it].correctIndex }
+    val missed = quiz.questions.indices.filter { quiz.questions[it].correctIndex != null && quiz.questions[it].evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) && answers[it] != quiz.questions[it].correctIndex }
     ScreenList {
         item { SectionHeading("Результат", quiz.title) }
         item {
@@ -136,7 +139,7 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
                 Text("Правильных ответов: ${score.correct} из ${score.gradedTotal}")
                 percent?.let { LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth()) }
                 Text("Ошибок: ${score.incorrect} · Пропущено: ${score.skipped}")
-                if (score.ungraded > 0) Text("Без ключа: ${score.ungraded}")
+                if (score.ungraded > 0) Text("Без подтверждённого ключа: ${score.ungraded}")
                 if (expired) Text("Время вышло. Тест завершён автоматически.")
             }
         }

@@ -30,6 +30,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":ui"))
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.foundation:foundation")

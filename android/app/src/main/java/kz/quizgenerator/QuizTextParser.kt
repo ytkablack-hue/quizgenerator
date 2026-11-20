@@ -5,28 +5,16 @@ import java.util.UUID
 
 data class ParsedQuiz(val quiz: Quiz, val warnings: List<String>)
 
-/**
- * Conservative, entirely offline parser for numbered multiple-choice questions.
- * If an answer key is missing or ambiguous, correctIndex stays null.
- */
 object QuizTextParser {
-    private val numberedQuestion = Regex("""^(?:№\s*)?(\d{1,3})[.)]\s*(.+)$""")
-    private val namedQuestion = Regex(
-        """^(?:Вопрос|Сұрақ|Question)\s*(?:№\s*)?(\d{1,3})\s*[:.)-]\s*(.+)$""",
-        RegexOption.IGNORE_CASE
-    )
-    private val option = Regex("""^(\*\s*)?([A-HА-ЗІ])\s*[.)]\s*(.+)$""", RegexOption.IGNORE_CASE)
-    private val answer = Regex(
-        """^(?:Ответ|Правильный ответ|Дұрыс жауап|Ключ|Correct(?:\s+answer)?)\s*[:\-]\s*(.+)$""",
-        RegexOption.IGNORE_CASE
-    )
-    private val explanation = Regex(
-        """^(?:Объяснение|Пояснение|Түсіндірме|Explanation)\s*[:\-]\s*(.*)$""",
-        RegexOption.IGNORE_CASE
-    )
-
+    private val numbered = Regex("""^(?:№\s*)?(\d{1,6})[.)]\s*(.+)$""")
+    private val named = Regex("""^(?:Вопрос|Сұрақ|Question)\s*(?:№\s*)?(\d{1,6})\s*[:.)-]\s*(.+)$""", RegexOption.IGNORE_CASE)
+    private val taggedQuestion = Regex("""^<question>\s*(.*?)(?:</question>)?$""", RegexOption.IGNORE_CASE)
+    private val taggedVariant = Regex("""^<variant>\s*(.*?)(?:</variant>)?$""", RegexOption.IGNORE_CASE)
+    private val option = Regex("""^(\*\s*)?([A-ZА-ЯІ]|\d{1,2})\s*[.)]\s*(.+)$""", RegexOption.IGNORE_CASE)
+    private val answer = Regex("""^(?:Ответ|Правильный ответ|Дұрыс жауап|Ключ|Correct(?:\s+answer)?)\s*[:\-]\s*(.+)$""", RegexOption.IGNORE_CASE)
+    private val explanation = Regex("""^(?:Объяснение|Пояснение|Түсіндірме|Explanation)\s*[:\-]\s*(.*)$""", RegexOption.IGNORE_CASE)
     private data class OptionDraft(val label: String, var text: String, val marked: Boolean)
-    private class QuestionDraft(val number: String, var text: String) {
+    private class Draft(val number: String, var text: String, val tagged: Boolean) {
         val options = mutableListOf<OptionDraft>()
         var answer: String? = null
         var explanation: String? = null
@@ -39,21 +27,22 @@ object QuizTextParser {
         var seen = 0L
         val warnings = mutableListOf<String>()
         var omittedWarnings = 0
-        fun warning(value: String) {
-            if (warnings.size < 100) warnings.add(value.take(400)) else omittedWarnings++
-        }
-        val parsedQuestions = mutableListOf<QuizQuestion>()
-        var current: QuestionDraft? = null
+        val questions = mutableListOf<QuizQuestion>()
+        var current: Draft? = null
         var field = "question"
-        fun append(existing: String, next: String): String {
-            require(existing.length + next.length < 65_536) { "Вопрос, ответ или пояснение слишком длинные. Разделите документ." }
-            return "$existing $next"
-        }
+        var ordinal = 0
 
+        fun warning(text: String) {
+            if (warnings.size < 100) warnings.add(text.take(400)) else omittedWarnings++
+        }
+        fun append(old: String, next: String): String {
+            require(old.length + next.length < 65_536) { "Вопрос, ответ или пояснение слишком длинные. Разделите документ." }
+            return "$old $next".trim()
+        }
         fun flush() {
             val draft = current ?: return
-            if (draft.options.size !in 2..8 || draft.text.isBlank()) {
-                warning("Вопрос ${draft.number} пропущен: нужен текст и 2–8 вариантов ответа")
+            if (draft.text.isBlank() || draft.options.size < 2 || draft.options.any { it.text.isBlank() }) {
+                warning("Вопрос ${draft.number} пропущен: нужны текст и минимум два непустых варианта")
                 return
             }
             val labels = draft.options.map { it.label }
@@ -62,83 +51,57 @@ object QuizTextParser {
                 return
             }
             val marked = draft.options.indices.filter { draft.options[it].marked }
-            var index: Int? = null
-            if (draft.answer != null) {
-                val raw = draft.answer!!.trim().trimEnd('.', ')').uppercase(Locale.ROOT)
-                index = labels.indexOf(raw).takeIf { it >= 0 }
-                    ?: raw.toIntOrNull()?.minus(1)?.takeIf { it in draft.options.indices }
-                    ?: draft.options.withIndex()
-                        .filter { (_, option) -> option.text.equals(draft.answer!!.trim(), ignoreCase = true) }
-                        .singleOrNull()?.index
-                if (index == null) warning("Вопрос ${draft.number}: ключ «${draft.answer.orEmpty().take(100)}» не распознан; проверь ответ вручную")
-            } else if (marked.size == 1) {
-                index = marked.single()
-            } else if (marked.size > 1) {
-                warning("Вопрос ${draft.number}: отмечено несколько правильных вариантов")
-            }
-            require(parsedQuestions.size < 500) { "В документе больше 500 вопросов. Разделите его на части." }
-            parsedQuestions += QuizQuestion(
-                id = UUID.randomUUID().toString(),
-                text = draft.text.trim(),
-                options = draft.options.map { it.text.trim() },
-                correctIndex = index,
-                explanation = draft.explanation?.trim()?.ifBlank { null }
-            )
+            val raw = draft.answer?.trim()
+            val key = if (raw != null) {
+                val normalized = raw.trimEnd('.', ')').uppercase(Locale.ROOT)
+                labels.indexOf(normalized).takeIf { it >= 0 }
+                    ?: normalized.toIntOrNull()?.minus(1)?.takeIf { it in draft.options.indices }
+                    ?: draft.options.withIndex().filter { it.value.text.equals(raw, true) }.singleOrNull()?.index
+            } else marked.singleOrNull()
+            if (raw != null && key == null) warning("Вопрос ${draft.number}: ключ «${raw.take(100)}» не распознан; проверь ответ вручную")
+            if (marked.size > 1 && raw == null) warning("Вопрос ${draft.number}: отмечено несколько правильных вариантов")
+            require(questions.size < QuizLimits.QUESTIONS) { "В документе больше ${QuizLimits.QUESTIONS} вопросов. Разделите его на части." }
+            questions.add(QuizQuestion(UUID.randomUUID().toString(), draft.text.trim(), draft.options.map { it.text.trim() },
+                key, draft.explanation?.trim()?.ifBlank { null }))
         }
-
         read { rawLine ->
-            seen += rawLine.length.toLong() + 1
+            seen += rawLine.length + 1L
             require(seen <= 8_000_000) { "В документе больше 8 млн символов текста. Разделите его на части." }
-            val line = rawLine.trim()
-            if (line.isBlank()) return@read
-            val questionMatch = namedQuestion.matchEntire(line) ?: numberedQuestion.matchEntire(line)
-            if (questionMatch != null) {
+            require(rawLine.length <= 65_536) { "Строка документа слишком длинная. Разделите её на абзацы." }
+            val line = rawLine.replace('\u00a0', ' ').replace('\u202f', ' ').replace("\uFEFF", "").trim()
+            if (line.isEmpty()) return@read
+            val tag = taggedQuestion.matchEntire(line)
+            val header = named.matchEntire(line) ?: numbered.matchEntire(line)
+            if (tag != null || (header != null && current?.tagged != true)) {
                 flush()
-                current = QuestionDraft(questionMatch.groupValues[1], questionMatch.groupValues[2])
+                ordinal++
+                current = if (tag != null) Draft(ordinal.toString(), tag.groupValues[1], true)
+                    else Draft(header!!.groupValues[1], header.groupValues[2], false)
                 field = "question"
                 return@read
             }
             val draft = current ?: return@read
-            if (draft.options.size > 8) return@read
-            val optionMatch = option.matchEntire(line)
-            val answerMatch = answer.matchEntire(line)
-            val explanationMatch = explanation.matchEntire(line)
+            val variant = taggedVariant.matchEntire(line)
+            val choice = if (draft.tagged) null else option.matchEntire(line)
+            val key = answer.matchEntire(line)
+            val note = explanation.matchEntire(line)
             when {
-                optionMatch != null -> {
-                    draft.options += OptionDraft(
-                        optionMatch.groupValues[2].uppercase(Locale.ROOT),
-                        optionMatch.groupValues[3],
-                        optionMatch.groupValues[1].isNotBlank()
-                    )
+                variant != null || choice != null -> {
+                    require(draft.options.size < QuizLimits.OPTIONS) { "В вопросе больше ${QuizLimits.OPTIONS} вариантов. Разделите документ." }
+                    draft.options.add(if (variant != null) OptionDraft((draft.options.size + 1).toString(), variant.groupValues[1], false)
+                        else OptionDraft(choice!!.groupValues[2].uppercase(Locale.ROOT), choice.groupValues[3], choice.groupValues[1].isNotBlank()))
                     field = "option"
                 }
-                answerMatch != null -> {
-                    draft.answer = answerMatch.groupValues[1]
-                    field = "answer"
-                }
-                explanationMatch != null -> {
-                    draft.explanation = explanationMatch.groupValues[1]
-                    field = "explanation"
-                }
-                field == "explanation" -> draft.explanation =
-                    append(draft.explanation.orEmpty(), line).trim()
-                field == "option" && draft.options.isNotEmpty() -> {
-                    val previous = draft.options.last()
-                    previous.text = append(previous.text, line)
-                }
+                key != null -> { draft.answer = key.groupValues[1]; field = "answer" }
+                note != null -> { draft.explanation = note.groupValues[1]; field = "explanation" }
+                field == "explanation" -> draft.explanation = append(draft.explanation.orEmpty(), line)
+                field == "option" -> draft.options.last().let { it.text = append(it.text, line) }
                 field == "question" -> draft.text = append(draft.text, line)
             }
         }
         flush()
-
-        require(parsedQuestions.isNotEmpty()) {
-            "Вопросы не найдены. Нужны номера 1., 2. и варианты A), B) или А), Б)."
-        }
-
+        require(questions.isNotEmpty()) { "Вопросы не найдены. Используйте номера с вариантами или теги <question> и <variant>." }
         if (omittedWarnings > 0) warnings.add("Других замечаний: $omittedWarnings")
-        return ParsedQuiz(
-            Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, parsedQuestions),
-            warnings
-        )
+        return ParsedQuiz(Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, questions), warnings)
     }
 }

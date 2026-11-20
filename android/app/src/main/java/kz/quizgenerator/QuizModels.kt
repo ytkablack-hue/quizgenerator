@@ -6,7 +6,8 @@ data class QuizQuestion(
     val options: List<String>,
     val correctIndex: Int?,
     val explanation: String?,
-    val sourceExcerpt: String? = null
+    val sourceExcerpt: String? = null,
+    val evidence: AnswerEvidence = if (correctIndex == null) AnswerEvidence.UNKNOWN else AnswerEvidence.SOURCE
 )
 
 data class Quiz(
@@ -36,7 +37,7 @@ object QuizScorer {
 
         quiz.questions.forEachIndexed { index, question ->
             when {
-                question.correctIndex == null -> ungraded++
+                question.correctIndex == null || question.evidence == AnswerEvidence.INFERRED || question.evidence == AnswerEvidence.UNKNOWN -> ungraded++
                 answers[index] == null -> skipped++
                 answers[index] == question.correctIndex -> correct++
                 else -> incorrect++

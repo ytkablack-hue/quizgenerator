@@ -1,5 +1,6 @@
 package kz.quizgenerator
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -15,35 +16,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 
-private val light = lightColorScheme(
-    background = Color(0xFFF8F7FC), surface = Color.White, surfaceContainer = Color(0xFFF3F0FA),
-    primary = Color(0xFF675DA8), onPrimary = Color.White,
-    primaryContainer = Color(0xFFE7E3F4), onPrimaryContainer = Color(0xFF353060),
-    secondary = Color(0xFF467B9D), onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDDEBF3), onSecondaryContainer = Color(0xFF24465D),
-    onBackground = Color(0xFF30343B), onSurface = Color(0xFF30343B),
-    onSurfaceVariant = Color(0xFF69727A), outline = Color(0xFF777082), outlineVariant = Color(0xFFE5E0EF),
-    error = Color(0xFFBC4D5E), errorContainer = Color(0xFFFFE6EA), onErrorContainer = Color(0xFF7A2032)
-)
-private val dark = darkColorScheme(
-    background = Color(0xFF191A29), surface = Color(0xFF25273A), surfaceContainer = Color(0xFF2D2F43),
-    primary = Color(0xFFB3A9EF), onPrimary = Color(0xFF28204F),
-    primaryContainer = Color(0xFF35314B), onPrimaryContainer = Color(0xFFF1ECFF),
-    secondary = Color(0xFF9BC9E5), onSecondary = Color(0xFF17364A),
-    secondaryContainer = Color(0xFF263C50), onSecondaryContainer = Color(0xFFDCEFFF),
-    onBackground = Color(0xFFF1F0F7), onSurface = Color(0xFFF1F0F7),
-    onSurfaceVariant = Color(0xFFB5B6C6), outline = Color(0xFFB5AEC8), outlineVariant = Color(0xFF494A60),
-    error = Color(0xFFFFB2BE), errorContainer = Color(0xFF552D41), onErrorContainer = Color(0xFFFFDCE3)
-)
-
 @Composable
 internal fun SoftStudyTheme(mode: String, content: @Composable () -> Unit) {
-    val useDark = when (mode) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
-    MaterialTheme(
-        colorScheme = if (useDark) dark else light,
-        shapes = Shapes(small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(16.dp), large = RoundedCornerShape(22.dp)),
-        content = content
-    )
+    kz.quizgenerator.ui.theme.SteamTheme(mode, content)
 }
 
 internal enum class Glyph { HOME, ADD, LIBRARY, PLAN, SETTINGS, FILE, AI, EDIT, CARDS }
@@ -90,19 +65,8 @@ internal enum class PanelTone { PLAIN, LAVENDER, SKY }
 @Composable
 internal fun StudyPanel(tone: PanelTone = PanelTone.PLAIN, modifier: Modifier = Modifier,
                         onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val c = MaterialTheme.colorScheme
-    val (background, foreground) = when (tone) {
-        PanelTone.PLAIN -> c.surface to c.onSurface
-        PanelTone.LAVENDER -> c.primaryContainer to c.onPrimaryContainer
-        PanelTone.SKY -> c.secondaryContainer to c.onSecondaryContainer
-    }
-    val colors = CardDefaults.cardColors(containerColor = background, contentColor = foreground)
-    val border = BorderStroke(1.dp, c.outlineVariant)
-    val body: @Composable ColumnScope.() -> Unit = {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
-    }
-    if (onClick == null) Card(modifier.fillMaxWidth(), colors = colors, border = border, content = body)
-    else Card(onClick, modifier.fillMaxWidth(), colors = colors, border = border, content = body)
+    val click = if (onClick == null) modifier else modifier.clickable(onClick = onClick)
+    kz.quizgenerator.ui.components.SteamCard(click) { content() }
 }
 
 @Composable

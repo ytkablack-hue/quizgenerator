@@ -17,7 +17,11 @@ internal data class StudySettings(
     val theme: String = if (dark) "dark" else "system"
 )
 
-internal data class Flashcard(val id: String, val front: String, val back: String, val generatedByAi: Boolean = false)
+internal data class Flashcard(
+    val id: String, val front: String, val back: String, val generatedByAi: Boolean = false,
+    val reviews: Int = 0, val lastRating: String? = null, val sourceKey: String? = null,
+    val sourceQuizId: String? = null, val evidence: AnswerEvidence = if (generatedByAi) AnswerEvidence.INFERRED else AnswerEvidence.MANUAL
+)
 internal data class Exam(val id: String, val title: String, val date: LocalDate, val topics: List<String>, val quizIds: List<String>)
 internal data class Mistake(val question: String, val given: String?, val correct: String, val explanation: String?)
 internal data class Attempt(
@@ -39,10 +43,10 @@ internal data class StudyDay(val date: LocalDate, val topic: String)
 internal object StudyLogic {
     fun manualQuiz(title: String, questions: List<QuizQuestion>): Quiz {
         require(title.isNotBlank()) { "Введите название теста" }
-        require(questions.size in 1..500) { "Добавьте от 1 до 500 вопросов" }
+        require(questions.size in 1..QuizLimits.QUESTIONS) { "Добавьте от 1 до 5000 вопросов" }
         return Quiz(UUID.randomUUID().toString(), title.trim(), questions.map {
-            require(it.text.isNotBlank() && it.options.size in 2..8 && it.options.none(String::isBlank)) {
-                "Вопросу нужны текст и 2–8 непустых вариантов"
+            require(it.text.isNotBlank() && it.options.size in 2..QuizLimits.OPTIONS && it.options.none(String::isBlank)) {
+                "Вопросу нужны текст и 2–64 непустых варианта"
             }
             require(it.correctIndex == null || it.correctIndex in it.options.indices) { "Неверный ключ" }
             it.copy(text = it.text.trim(), options = it.options.map(String::trim))
@@ -66,7 +70,7 @@ internal object StudyLogic {
     fun complete(id: String, quiz: Quiz, answers: List<Int?>, now: Long): Attempt {
         val score = QuizScorer.score(quiz, answers)
         val mistakes = quiz.questions.mapIndexedNotNull { index, question ->
-            val correct = question.correctIndex
+            val correct = question.correctIndex.takeIf { question.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }
             if (correct == null || answers[index] == correct) null else Mistake(
                 question.text, answers[index]?.let(question.options::getOrNull),
                 question.options[correct], question.explanation

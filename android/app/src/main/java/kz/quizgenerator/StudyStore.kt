@@ -30,7 +30,11 @@ internal class StudyStore(private val file: File) {
         val root = JSONObject(file.readText(Charsets.UTF_8))
         val settings = root.optJSONObject("settings") ?: JSONObject()
         return StudyData(
-            cards = root.readObjects("cards") { Flashcard(getString("id"), getString("front"), getString("back"), optBoolean("generatedByAi")) },
+            cards = root.readObjects("cards") { Flashcard(getString("id"), getString("front"), getString("back"), optBoolean("generatedByAi"),
+                optInt("reviews").coerceAtLeast(0), opt("lastRating") as? String, opt("sourceKey") as? String,
+                opt("sourceQuizId") as? String, runCatching {
+                    AnswerEvidence.valueOf(optString("evidence", if (optBoolean("generatedByAi")) "INFERRED" else "MANUAL"))
+                }.getOrDefault(AnswerEvidence.INFERRED)) },
             exams = root.readObjects("exams") {
                 Exam(getString("id"), getString("title"), LocalDate.parse(getString("date")), strings("topics"), strings("quizIds"))
             },
@@ -50,7 +54,9 @@ internal class StudyStore(private val file: File) {
 
     fun save(data: StudyData) {
         val root = JSONObject()
-        root.put("cards", data.cards.asJson { JSONObject().put("id", id).put("front", front).put("back", back).put("generatedByAi", generatedByAi) })
+        root.put("cards", data.cards.asJson { JSONObject().put("id", id).put("front", front).put("back", back).put("generatedByAi", generatedByAi).put("reviews", reviews)
+            .put("lastRating", lastRating ?: JSONObject.NULL).put("sourceKey", sourceKey ?: JSONObject.NULL)
+            .put("sourceQuizId", sourceQuizId ?: JSONObject.NULL).put("evidence", evidence.name) })
         root.put("exams", data.exams.asJson {
             JSONObject().put("id", id).put("title", title).put("date", date.toString())
                 .put("topics", JSONArray(topics)).put("quizIds", JSONArray(quizIds))

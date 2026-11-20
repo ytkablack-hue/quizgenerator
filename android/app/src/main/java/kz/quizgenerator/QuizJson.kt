@@ -14,7 +14,7 @@ object QuizJson {
         require(id.isNotEmpty() && title.isNotEmpty()) { "Укажите id и название теста" }
 
         val rawQuestions = root.getJSONArray("questions")
-        require(rawQuestions.length() in 1..500) { "Тест должен содержать от 1 до 500 вопросов" }
+        require(rawQuestions.length() in 1..QuizLimits.QUESTIONS) { "Тест должен содержать от 1 до 5000 вопросов" }
         val ids = mutableSetOf<String>()
         val questions = (0 until rawQuestions.length()).map { position ->
             val item = rawQuestions.getJSONObject(position)
@@ -24,7 +24,7 @@ object QuizJson {
             val text = item.getString("text").trim()
             val rawOptions = item.getJSONArray("options")
             require(text.isNotEmpty()) { "Текст вопроса не может быть пустым" }
-            require(rawOptions.length() in 2..8) { "Вопрос должен содержать от 2 до 8 вариантов" }
+            require(rawOptions.length() in 2..QuizLimits.OPTIONS) { "Вопрос должен содержать от 2 до 64 вариантов" }
             val options = (0 until rawOptions.length()).map { optionIndex ->
                 rawOptions.getString(optionIndex).trim().also {
                     require(it.isNotEmpty()) { "Варианты ответов не могут быть пустыми" }
@@ -46,7 +46,12 @@ object QuizJson {
                 item.getString("explanation").trim().ifEmpty { null }
             }
             val sourceExcerpt = item.opt("sourceExcerpt") as? String
-            QuizQuestion(questionId, text, options, correctIndex, explanation, sourceExcerpt)
+            val evidence = if (correctIndex == null) AnswerEvidence.UNKNOWN else {
+                val fallback = if (root.optString("source") == "ai") AnswerEvidence.INFERRED else AnswerEvidence.SOURCE
+                if (!item.has("answerEvidence")) fallback
+                else runCatching { AnswerEvidence.valueOf(item.getString("answerEvidence")) }.getOrDefault(AnswerEvidence.INFERRED)
+            }
+            QuizQuestion(questionId, text, options, correctIndex, explanation, sourceExcerpt, evidence)
         }
 
         return Quiz(id, title, questions, root.optString("source") == "ai")
@@ -70,6 +75,7 @@ object QuizJson {
                     .put("correctIndex", q.correctIndex ?: JSONObject.NULL)
                     .put("explanation", q.explanation ?: JSONObject.NULL)
                     .put("sourceExcerpt", q.sourceExcerpt ?: JSONObject.NULL)
+                    .put("answerEvidence", q.evidence.name)
             )
         }
         result.put("questions", questions)

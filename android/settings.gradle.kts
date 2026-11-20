@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "QuizGenerator"
-include(":app")
+include(":app", ":ui")

@@ -64,7 +64,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     var quizId by rememberSaveable { mutableStateOf<String?>(null) }
     val currentQuiz = quizzes.firstOrNull { it.id == quizId }
     var questionIndex by rememberSaveable { mutableIntStateOf(0) }
-    var answers by rememberSaveable { mutableStateOf(arrayListOf<Int?>()) }
+    var answers by editor::activeAnswers
     var seed by rememberSaveable { mutableLongStateOf(0L) }
     var attemptId by rememberSaveable { mutableStateOf("") }
     var timerMinutes by rememberSaveable { mutableIntStateOf(study.settings.minutes) }
@@ -76,6 +76,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     var draftError by rememberSaveable { mutableStateOf<String?>(null) }
     var libraryError by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showCardCreation by rememberSaveable { mutableStateOf(false) }
     var confirmation by rememberSaveable { mutableStateOf<Confirmation?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -144,6 +145,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         if (page in setOf(Page.EDITOR, Page.QUESTION) && editor.draft == null) page = editorReturn
         else if (page == Page.QUESTION && editor.fields == null) page = Page.EDITOR
         if (page in setOf(Page.QUIZ, Page.RESULTS, Page.REVIEW) && currentQuiz == null) page = Page.LIBRARY
+        else if (page in setOf(Page.QUIZ, Page.RESULTS) && answers.size != prepared?.questions?.size) page = Page.REVIEW
     }
 
     val chooser = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -191,25 +193,44 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         }
     }
 
+    if (showCardCreation && currentQuiz != null) {
+        val quiz = currentQuiz
+        val unknown = quiz.questions.count { it.correctIndex == null }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCardCreation = false },
+            title = { Text("Карточки из теста") },
+            text = { Text("Вопросов без ключа: $unknown. Для них выберите ответ в редакторе. Предположительные ключи сохранят свою пометку.") },
+            confirmButton = { TextButton(onClick = {
+                val created = QuizCards.create(quiz, study.cards)
+                if (update(study.copy(cards = study.cards + created))) {
+                    showCardCreation = false
+                    page = Page.CARDS
+                    scope.launch { snackbar.showSnackbar("Добавлено карточек: ${created.size}") }
+                }
+            }) { Text("Создать по указанным ответам") } },
+            dismissButton = { TextButton(onClick = {
+                showCardCreation = false
+                openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW)
+            }) { Text("Указать ответы вручную") } }
+        )
+    }
+
     val tabs = listOf(Page.HOME, Page.CREATE, Page.LIBRARY, Page.PREPARATION)
     val mainPage = page in tabs
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ) {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        if (!mainPage && page != Page.CARDS) TextButton(onClick = ::goBack) { Text("Назад") }
-                        Text(if (mainPage) "TestHelper" else page.title,
-                            modifier = Modifier.weight(1f).padding(start = 4.dp),
-                            style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (mainPage) IconButton(onClick = { settingsReturn = page; page = Page.SETTINGS }) {
+            if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ && page != Page.CARDS) {
+                kz.quizgenerator.ui.components.SteamTopBar(
+                    if (mainPage) "TestHelper" else page.title,
+                    onBack = if (!mainPage && page != Page.CARDS) ::goBack else null,
+                    trailing = if (mainPage) ({
+                        IconButton(onClick = { settingsReturn = page; page = Page.SETTINGS }) {
                             StudyIcon(Glyph.SETTINGS, "Настройки")
-                        } else Spacer(Modifier.height(48.dp))
-                    }
-                }
+                        }
+                    }) else null
+                )
             }
         },
         bottomBar = {
@@ -241,9 +262,12 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         editor::cancel, { page = Page.AI }, { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) })
                     Page.LIBRARY -> LibraryScreen(quizzes, repository::modifiedAt, libraryError, ::openQuiz,
                         { openDraft(QuizDraft(it, original = it), Page.LIBRARY) }, { deleteId = it.id },
-                        repository::canDelete, { page = Page.CARDS }, { page = Page.CREATE })
+                        repository::canDelete, { page = Page.CARDS }, { page = Page.CREATE },
+                        cardCount = { quiz -> study.cards.count { it.sourceQuizId == quiz.id } },
+                        quizCards = { quiz -> openQuiz(quiz); showCardCreation = true },
+                        onImport = { page = Page.CREATE; chooser.launch(arrayOf("*/*")) })
                     Page.PREPARATION -> PreparationScreen(study, quizzes) { update(study.copy(exams = it)) }
-                    Page.CARDS -> FlashcardScreen(study.cards, { update(study.copy(cards = it)) }, { page = Page.LIBRARY })
+                    Page.CARDS -> CoinFlashcardsScreen(study.cards, { update(study.copy(cards = it)) }, { page = Page.LIBRARY })
                     Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::goBack)
                     Page.AI -> AiScreen(study.settings, study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
                         repository::readStudyMaterial, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
@@ -282,7 +306,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     }
                     Page.REVIEW -> currentQuiz?.let { quiz ->
                         StartScreen(quiz, timerMinutes, { timerMinutes = it },
-                            { openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW) }, { start(quiz) })
+                            { openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW) }, { start(quiz) }, { showCardCreation = true })
                     }
                     Page.QUIZ -> prepared?.takeIf { questionIndex in it.questions.indices && answers.size == it.questions.size }?.let {
                         RunScreen(it, questionIndex, answers[questionIndex], seconds.takeIf { deadline != 0L },

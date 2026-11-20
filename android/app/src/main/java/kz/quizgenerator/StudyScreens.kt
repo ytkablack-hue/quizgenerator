@@ -243,7 +243,7 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
         }
         StudyPanel {
             Text("Прохождение тестов", style = MaterialTheme.typography.titleMedium)
-            StudyField(limit, { limit = it.filter(Char::isDigit).take(3) }, "Число вопросов (0 — все)")
+            StudyField(limit, { limit = it.filter(Char::isDigit).take(4) }, "Число вопросов (0 — все)")
             Preference("Перемешивать вопросы", value.shuffleQuestions) { value = value.copy(shuffleQuestions = it) }
             Preference("Перемешивать варианты", value.shuffleOptions) { value = value.copy(shuffleOptions = it) }
             Preference("Показывать подсказки", value.showHints) { value = value.copy(showHints = it) }
@@ -268,7 +268,7 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
         Button(onClick = {
             runCatching {
                 if (value.server.isNotBlank()) AiClient.baseUri(value.server)
-                if (onSave(value.copy(limit = (limit.toIntOrNull() ?: 0).coerceIn(0, 500)))) onBack()
+                if (onSave(value.copy(limit = (limit.toIntOrNull() ?: 0).coerceIn(0, QuizLimits.QUESTIONS)))) onBack()
             }.onFailure { error = it.message }
         }) { Text("Сохранить настройки") }
     }
@@ -284,7 +284,7 @@ private fun Preference(label: String, enabled: Boolean, onChange: (Boolean) -> U
 
 @Composable
 internal fun StudyField(value: String, onChange: (String) -> Unit, label: String) {
-    OutlinedTextField(value, onChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
+    kz.quizgenerator.ui.components.SteamField(label, value, onChange, Modifier.fillMaxWidth(), singleLine = false)
 }
 
 @Composable

@@ -35,13 +35,13 @@ internal object EditorRules {
 
     fun validate(title: String, questions: List<QuizQuestion>) {
         require(title.isNotBlank()) { "Введите название теста" }
-        require(questions.size in 1..500) { "Добавьте от 1 до 500 вопросов" }
+        require(questions.size in 1..QuizLimits.QUESTIONS) { "Добавьте от 1 до 5000 вопросов" }
         questions.forEach(::validateQuestion)
     }
 
     fun validateQuestion(question: QuizQuestion) {
         require(question.text.isNotBlank()) { "Введите текст вопроса" }
-        require(question.options.size in 2..8) { "Добавьте от двух до восьми вариантов ответа" }
+        require(question.options.size in 2..QuizLimits.OPTIONS) { "Добавьте от двух до 64 вариантов ответа" }
         require(question.options.none(String::isBlank)) { "Заполните все варианты ответа" }
         require(question.correctIndex == null || question.correctIndex in question.options.indices) { "Выберите существующий вариант" }
     }
@@ -55,6 +55,7 @@ internal class QuestionFields(val initial: QuizQuestion) {
 }
 
 internal class EditorModel : ViewModel() {
+    var activeAnswers by mutableStateOf<List<Int?>>(emptyList())
     var fields by mutableStateOf<QuestionFields?>(null)
     var draft by mutableStateOf<QuizDraft?>(null)
     var load by mutableStateOf<ImportProgress?>(null)
@@ -103,7 +104,14 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                          onBack: () -> Unit, onSave: () -> Unit, error: String?) {
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
+    var firstRule by rememberSaveable { mutableStateOf(false) }
     val quiz = draft.quiz
+    if (firstRule) StudyConfirmation("Считать первый вариант правильным?",
+        "Это предположение пользователя, а не подтверждённый ключ. Оно применяется только к вопросам без ответа. Такие вопросы не влияют на оценку до ручного подтверждения.",
+        "Применить предположение", { firstRule = false }) {
+        onChange(AnswerPolicy.assumeFirst(quiz))
+        firstRule = false
+    }
     removing?.let { id ->
         StudyConfirmation("Удалить вопрос?", "Изменение будет применено при сохранении теста.", "Удалить",
             { removing = null }) {
@@ -113,7 +121,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
     }
     val actions = @Composable {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!preview) OutlinedButton(enabled = quiz.questions.size < 500, onClick = { onQuestion(-1) }) { Text("Добавить вопрос") }
+            if (!preview) OutlinedButton(enabled = quiz.questions.size < QuizLimits.QUESTIONS, onClick = { onQuestion(-1) }) { Text("Добавить вопрос") }
             OutlinedButton(onClick = { preview = !preview }) { Text(if (preview) "К редактированию" else "Предпросмотр") }
             Button(onClick = onSave) { Text("Сохранить тест") }
         }
@@ -146,6 +154,17 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                     if (preview) Text(quiz.title.ifBlank { "Тест без названия" }, style = MaterialTheme.typography.titleLarge)
                     else StudyField(quiz.title, { onChange(quiz.copy(title = it.take(256))) }, "Название теста")
                 }
+                item {
+                    StudyPanel(PanelTone.SKY) {
+                        val unknown = quiz.questions.count { it.correctIndex == null }
+                        val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
+                        Text("Без ключа: $unknown · Предположительных: $inferred")
+                        Text("Предположения исключены из оценки. Подтвердите ответ вручную в вопросе.")
+                        if (unknown > 0) OutlinedButton(onClick = { firstRule = true }) {
+                            Text("Считать первый вариант правильным")
+                        }
+                    }
+                }
                 if (compact) item { actions() }
                 if (quiz.questions.isEmpty()) item {
                     StudyPanel { Text("Добавьте первый вопрос и варианты ответа.") }
@@ -155,12 +174,12 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         Text("${index + 1}. ${question.text}", style = MaterialTheme.typography.titleMedium)
                         if (preview) {
                             question.options.forEachIndexed { i, value ->
-                                Text(if (i == question.correctIndex) "Правильный ответ · $value" else "• $value")
+                                Text(if (i == question.correctIndex) "${question.evidence.label} · $value" else "• $value")
                             }
                             question.explanation?.let { Text(it) }
                             question.sourceExcerpt?.let { Text("Цитата: $it", style = MaterialTheme.typography.bodySmall) }
                         } else {
-                            Text(question.correctIndex?.let { "Ключ · ${question.options[it]}" } ?: "Ключ пока неизвестен")
+                            Text(question.evidence.label + (question.correctIndex?.let { " · ${question.options[it]}" } ?: ""))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = { onQuestion(index) }) { Text("Править") }
                                 TextButton(enabled = index > 0, onClick = {
@@ -193,7 +212,8 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
     var explanation by fields::explanation
     var failure by rememberSaveable { mutableStateOf<String?>(null) }
     var discard by rememberSaveable { mutableStateOf(false) }
-    val dirty = text != question.text || options != question.options || correct != question.correctIndex || explanation != question.explanation.orEmpty()
+    var confirmed by rememberSaveable { mutableStateOf(false) }
+    val dirty = text != question.text || options != question.options || correct != question.correctIndex || explanation != question.explanation.orEmpty() || confirmed
     fun back() { if (dirty) discard = true else onCancel() }
     BackHandler { back() }
     if (discard) StudyConfirmation("Отменить правки вопроса?", "Текст, введённый на этом экране, не сохранится.", "Отменить правки",
@@ -204,17 +224,18 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
             SectionHeading("Вопрос", "Отметьте правильный вариант или оставьте ключ неизвестным.")
         }
         failure?.let { item { StudyError(it) } }
+        item { Text(question.evidence.label) }
         item { StudyField(text, { text = it.take(65_536) }, "Текст вопроса") }
         itemsIndexed(options) { i, option ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RadioButton(selected = correct == i, onClick = { correct = i })
+                RadioButton(selected = correct == i, onClick = { correct = i; confirmed = true })
                 OutlinedTextField(option, { value -> options = ArrayList(options).also { it[i] = value.take(65_536) } },
                     label = { Text("Вариант ${i + 1}") }, modifier = Modifier.weight(1f))
             }
         }
         item {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(enabled = options.size < 8, onClick = { options = ArrayList(options + "") }) { Text("Добавить вариант") }
+                TextButton(enabled = options.size < QuizLimits.OPTIONS, onClick = { options = ArrayList(options + "") }) { Text("Добавить вариант") }
                 TextButton(enabled = options.size > 2, onClick = {
                     options = ArrayList(options.dropLast(1))
                     if (correct?.let { it >= options.size } == true) correct = null
@@ -225,7 +246,10 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
         item { StudyField(explanation, { explanation = it.take(65_536) }, "Пояснение") }
         item { Button(onClick = {
             val changed = question.copy(text = text.trim(), options = options.map(String::trim),
-                correctIndex = correct, explanation = explanation.trim().ifBlank { null })
+                correctIndex = correct, explanation = explanation.trim().ifBlank { null },
+                evidence = if (correct == null) AnswerEvidence.UNKNOWN
+                    else if (correct != question.correctIndex || text != question.text || options != question.options || confirmed)
+                        AnswerEvidence.MANUAL else question.evidence)
             runCatching { EditorRules.validateQuestion(changed) }
                 .onSuccess { onApply(changed) }.onFailure { failure = it.message }
         }, modifier = Modifier.fillMaxWidth()) { Text("Применить") } }

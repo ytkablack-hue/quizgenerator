@@ -132,54 +132,16 @@ private fun CreationCard(title: String, detail: String, icon: Glyph, tone: Panel
 @Composable
 internal fun LibraryScreen(quizzes: List<Quiz>, modified: (Quiz) -> Long?, error: String?,
                            open: (Quiz) -> Unit, edit: (Quiz) -> Unit, delete: (Quiz) -> Unit,
-                           canDelete: (Quiz) -> Boolean, cards: () -> Unit, onCreate: () -> Unit) {
-    var search by rememberSaveable { mutableStateOf("") }
+                           canDelete: (Quiz) -> Boolean, cards: () -> Unit, onCreate: () -> Unit,
+                           cardCount: (Quiz) -> Int, quizCards: (Quiz) -> Unit, onImport: () -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
     var alphabetical by rememberSaveable { mutableStateOf(false) }
-    var menu by remember { mutableStateOf<String?>(null) }
-    val results = remember(quizzes, search, alphabetical) {
-        val matching = quizzes.filter { it.title.contains(search.trim(), ignoreCase = true) }
-        if (alphabetical) matching.sortedBy { it.title.lowercase() } else matching.sortedByDescending { modified(it) ?: 0 }
-    }
-    ScreenList {
-        item {
-            SectionHeading("Библиотека")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("Тесты") }
-                OutlinedButton(onClick = cards, modifier = Modifier.weight(1f)) { Text("Карточки") }
-            }
-        }
-        item {
-            StudyField(search, { search = it }, "Поиск по названию")
-            TextButton(onClick = { alphabetical = !alphabetical }) {
-                Text(if (alphabetical) "Сортировка: по названию" else "Сортировка: недавно изменённые")
-            }
-        }
-        error?.let { item { StudyError(it) } }
-        if (results.isEmpty()) item {
-            StudyPanel(PanelTone.LAVENDER) {
-                Text(if (search.isBlank()) "Пока нет тестов" else "Ничего не найдено")
-                if (search.isBlank()) Button(onClick = onCreate) { Text("Создать тест") }
-                else TextButton(onClick = { search = "" }) { Text("Сбросить поиск") }
-            }
-        }
-        items(results, key = { it.id }) { quiz ->
-            StudyPanel {
-                Text(quiz.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val meta = listOfNotNull("Вопросов: ${quiz.questions.size}", modified(quiz)?.let(::displayDate),
-                    "Создано ИИ".takeIf { quiz.generatedByAi })
-                Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { open(quiz) }) { Text("Открыть") }
-                    Box {
-                        TextButton(onClick = { menu = quiz.id }) { Text("Действия") }
-                        DropdownMenu(expanded = menu == quiz.id, onDismissRequest = { menu = null }) {
-                            DropdownMenuItem(text = { Text("Редактировать") }, onClick = { menu = null; edit(quiz) })
-                            if (canDelete(quiz)) DropdownMenuItem(text = { Text("Удалить") },
-                                onClick = { menu = null; delete(quiz) })
-                        }
-                    }
-                }
-            }
-        }
-    }
+    val byId = remember(quizzes) { quizzes.associateBy(Quiz::id) }
+    kz.quizgenerator.ui.screens.CreateLibraryScreen(
+        quizzes.map { kz.quizgenerator.ui.screens.QuizRow(it.id, it.title, it.questions.size,
+            cardCount(it), modified(it) ?: 0L, !canDelete(it)) }, query, { query = it },
+        onCreate, onImport, { id -> byId[id]?.let(open) }, { id -> byId[id]?.let(edit) },
+        { id -> byId[id]?.let(delete) }, cards, alphabetical, { alphabetical = !alphabetical }, error,
+        { id -> byId[id]?.let(quizCards) }
+    )
 }
