@@ -1,0 +1,16 @@
+name = "testhelper-ai"
+main = "worker.mjs"
+compatibility_date = "2026-11-20"
+workers_dev = true
+
+# Set only after enabling Email/Password in the owner's Firebase project.
+# FIREBASE_PROJECT_ID and FIREBASE_WEB_API_KEY are public client configuration.
+# Keep existing GEMINI_API_KEY and TESTHELPER_ACCESS_TOKEN secrets untouched.
+# Do not deploy until the owner confirms provisioning the SQLite Durable Object.
+[[durable_objects.bindings]]
+name = "AI_QUOTA"
+class_name = "AiQuota"
+
+[[migrations]]
+tag = "auth-quota-v1"
+new_sqlite_classes = ["AiQuota"]
