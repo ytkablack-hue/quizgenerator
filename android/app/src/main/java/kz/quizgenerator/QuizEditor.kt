@@ -49,7 +49,7 @@ internal object EditorRules {
 
 internal class QuestionFields(val initial: QuizQuestion) {
     var text by mutableStateOf(initial.text)
-    var options by mutableStateOf(ArrayList(initial.options))
+    var options by mutableStateOf<List<String>>(initial.options.toList())
     var correct by mutableStateOf(initial.correctIndex)
     var explanation by mutableStateOf(initial.explanation.orEmpty())
 }
@@ -136,14 +136,14 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "")
                 }
                 draft.document?.let { document -> item {
-                    StudyPanel(PanelTone.SKY) {
+                    StudyPanel(tone = PanelTone.SKY) {
                         Text(documentCaption(document))
                         Text("Найдено вопросов: ${draft.detectedCount ?: quiz.questions.size}")
                     }
                 } }
                 if (draft.warnings.isNotEmpty()) item {
                     var show by rememberSaveable { mutableStateOf(false) }
-                    StudyPanel(PanelTone.LAVENDER) {
+                    StudyPanel(tone = PanelTone.LAVENDER) {
                         Text("Замечаний при импорте: ${draft.warnings.size}")
                         TextButton(onClick = { show = !show }) { Text(if (show) "Скрыть" else "Посмотреть замечания") }
                         if (show) draft.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -155,7 +155,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                     else StudyField(quiz.title, { onChange(quiz.copy(title = it.take(256))) }, "Название теста")
                 }
                 item {
-                    StudyPanel(PanelTone.SKY) {
+                    StudyPanel(tone = PanelTone.SKY) {
                         val unknown = quiz.questions.count { it.correctIndex == null }
                         val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
                         Text("Без ключа: $unknown · Предположительных: $inferred")

@@ -109,7 +109,7 @@ fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit
                         onClick = { flipped = !flipped })
                     Text("Насколько легко было вспомнить?", color = SteamMuted)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Сложно" to "hard", "Средне" to "medium", "Легко" to "easy").forEach { (label, rating) ->
+                        listOf("Повторить" to "hard", "Средне" to "medium", "Знаю" to "easy").forEach { (label, rating) ->
                             Button(enabled = flipped, onClick = {
                                 if (onRate(card.id, rating)) { index = (actual + 1).mod(cards.size); flipped = false }
                             }) { Text(label) }

@@ -12,7 +12,7 @@ internal data class StudySettings(
     val showAnswers: Boolean = true,
     val minutes: Int = 0,
     val dark: Boolean = false,
-    val server: String = "",
+    val server: String = ProductionConfig.SERVER,
     val accessToken: String = "",
     val theme: String = if (dark) "dark" else "system"
 )

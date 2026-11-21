@@ -35,56 +35,23 @@ internal fun documentCaption(document: DocumentDetails): String =
         ?: document.name
 
 @Composable
-internal fun HomeScreen(study: StudyData, onCreate: () -> Unit, onCards: () -> Unit,
-                        onContinue: () -> Unit, onPrepare: () -> Unit) {
-    val today = LocalDate.now()
-    val exam = study.exams.filter { it.date >= today }.minByOrNull(Exam::date)
-    val correct = study.attempts.sumOf { it.score.correct }
+internal fun HomeScreen(onCreate: (CreationSource) -> Unit) {
     ScreenList {
-        item { SectionHeading("Готов продолжить обучение?") }
+        item { SectionHeading("Создай тест из своего материала", "Проверь вопросы и учись в своём темпе") }
         item {
-            StudyPanel(PanelTone.LAVENDER) {
-                Text("Ближайший экзамен", style = MaterialTheme.typography.labelLarge)
-                Text(exam?.title ?: "Пока нет экзаменов", style = MaterialTheme.typography.titleLarge)
-                if (exam != null) Text("${exam.date} · ${examCountdown(exam.date, today)}")
-                Button(onClick = onPrepare) { Text(if (exam == null) "Добавить экзамен" else "Продолжить подготовку") }
+            Button(onClick = { onCreate(CreationSource.CHOOSE) }, modifier = Modifier.fillMaxWidth().heightIn(min=64.dp)) {
+                Text("Создать тест", style=MaterialTheme.typography.titleLarge)
             }
         }
-        item { SectionHeading("Быстрые действия") }
-        item {
-            StudyPanel(PanelTone.SKY) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StudyIcon(Glyph.ADD)
-                    Text("Создать тест", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onCreate) { Text("Создать") }
-                }
-                HorizontalDivider()
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StudyIcon(Glyph.CARDS)
-                    Text("Карточки", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onCards) { Text("Открыть") }
-                }
-                HorizontalDivider()
-                TextButton(onClick = onContinue) { Text("Продолжить занятие") }
-            }
-        }
-        item { SectionHeading("Твоя статистика") }
-        if (study.attempts.isEmpty()) item {
-            StudyPanel { Text("Здесь появятся результаты после первого теста.") }
-        } else {
-            item {
-                StudyPanel {
-                    Text("Тестов пройдено: ${study.attempts.size}")
-                    Text("Правильных ответов: $correct")
-                }
-            }
-            items(study.attempts.takeLast(3).asReversed(), key = { it.id }) { attempt ->
-                StudyPanel(onClick = onPrepare) {
-                    Text(attempt.title, style = MaterialTheme.typography.titleMedium)
-                    Text("${displayDate(attempt.completedAt)} · ${attempt.score.correct} из ${attempt.score.gradedTotal}")
+        items(listOf(CreationSource.DOCUMENT to "Из PDF или Word", CreationSource.PHOTO to "Из фотографии",
+            CreationSource.TEXT to "Из текста", CreationSource.AI to "С помощью ИИ")) { (source,label) ->
+            StudyPanel(onClick={onCreate(source)}) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Text(label,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium);Text("›")
                 }
             }
         }
+        item { Text("Сохранённые тесты, карточки и история — в разделе «Подготовка».", color=MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -113,7 +80,7 @@ internal fun CreateScreen(import: ImportProgress?, error: String?, onDocument: (
 @Composable
 private fun CreationCard(title: String, detail: String, icon: Glyph, tone: PanelTone, enabled: Boolean,
                          caption: String? = null, onClick: () -> Unit) {
-    StudyPanel(tone, onClick = if (enabled) onClick else null) {
+    StudyPanel(tone = tone, onClick = if (enabled) onClick else null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Surface(color = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary,
                 shape = MaterialTheme.shapes.medium) {

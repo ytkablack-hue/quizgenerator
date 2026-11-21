@@ -35,11 +35,14 @@ internal fun AiScreen(
     readMaterial: (Uri) -> String,
     saveQuiz: (Quiz) -> Unit,
     saveCards: (List<Flashcard>) -> Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onAccount: () -> Unit,
+    initialTask: String = "quizzes"
 ) {
     val scope = rememberCoroutineScope()
-    val client = remember(settings) { AiClient(settings) }
-    var mode by rememberSaveable { mutableStateOf(AiTask.QUIZ) }
+    val auth = LocalAuth.current
+    val client = remember(settings, auth) { AiClient(settings, authToken = { auth.token() }) }
+    var mode by rememberSaveable(initialTask, attempt?.id) { mutableStateOf(when (initialTask) { "review" -> AiTask.REVIEW; "cards" -> AiTask.CARDS; else -> AiTask.QUIZ }) }
     var topic by rememberSaveable { mutableStateOf("") }
     var material by rememberSaveable { mutableStateOf("") }
     var difficulty by rememberSaveable { mutableStateOf("medium") }
@@ -62,7 +65,7 @@ internal fun AiScreen(
             catch (cancelled: CancellationException) { throw cancelled }
 
             catch (error: java.io.IOException) {
-                android.util.Log.w("TestHelperAi", "Backend connection failed", error)
+                // Do not log authenticated requests or provider details.
                 failure = "Не удалось связаться с сервером. Проверьте адрес и подключение к интернету."
             }
             catch (error: Exception) { failure = error.message?.take(180) ?: "Не удалось выполнить запрос" }
@@ -75,7 +78,10 @@ internal fun AiScreen(
     }
     StudyColumn("Создать с ИИ", onBack) {
         Text("Учебный материал отправляется на настроенный сервер и в облачную модель только по нажатию кнопки.")
-        if (settings.server.isBlank()) Text("Укажите адрес сервера в настройках.")
+        if (auth.account == null || auth.account?.verified != true) {
+            Text("Для ИИ войдите и подтвердите почту. Локальные тесты доступны без регистрации.")
+            Button(onClick = onAccount) { Text("Войти в аккаунт") }
+        }
         OutlinedButton(enabled = !busy && settings.server.isNotBlank(), onClick = {
             request { notice = if (client.configured()) "Сервер доступен, ИИ настроен" else "Сервер доступен, ключ ИИ не настроен" }
         }) { Text("Проверить подключение") }
@@ -133,7 +139,7 @@ internal fun AiScreen(
             }
         }
         if (busy) StudyLoading("Подготавливаем материал")
-        notice?.let { StudyPanel(PanelTone.SKY) { Text(it) } }
+        notice?.let { StudyPanel(tone = PanelTone.SKY) { Text(it) } }
         failure?.let { StudyError(it) }
     }
 }

@@ -12,6 +12,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -24,14 +27,9 @@ internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
     ScreenList {
         item { SectionHeading(quiz.title, "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "") }
         item {
-            StudyPanel(PanelTone.LAVENDER) {
+            StudyPanel(tone = PanelTone.LAVENDER) {
                 Text("Время на тест", style = MaterialTheme.typography.titleMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0, 10, 20, 40).forEach { time ->
-                        FilterChip(time == minutes, { onMinutes(time) },
-                            label = { Text(if (time == 0) "Без таймера" else "$time мин") })
-                    }
-                }
+                TimerSelector(minutes, onMinutes)
             }
         }
         item {
@@ -76,13 +74,16 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hint
                         Text(quiz.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Вопрос ${index + 1} из ${quiz.questions.size}")
-                            seconds?.let { Text(String.format(Locale.ROOT, "%02d:%02d", it / 60, it % 60)) }
+                            seconds?.let { Text(String.format(Locale.ROOT, "%02d:%02d", it / 60, it % 60),
+                                color = if (QuizTimer.warning(it)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
                         }
+                        if (seconds != null && QuizTimer.warning(seconds)) Text("Осталось меньше минуты. Ответы сохранятся автоматически",
+                            color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(progress = { (index + 1f) / quiz.questions.size }, modifier = Modifier.fillMaxWidth())
                     }
                     item {
-                        StudyPanel(PanelTone.LAVENDER) {
+                        StudyPanel(tone = PanelTone.LAVENDER) {
                             Text(question.text, style = MaterialTheme.typography.headlineSmall)
                         }
                     }
@@ -111,7 +112,7 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hint
                     if (hints && !question.explanation.isNullOrBlank()) item {
                         var show by rememberSaveable(question.id) { mutableStateOf(false) }
                         TextButton(onClick = { show = !show }) { Text(if (show) "Скрыть подсказку" else "Показать подсказку") }
-                        if (show) StudyPanel(PanelTone.SKY) {
+                        if (show) StudyPanel(tone = PanelTone.SKY) {
                             Text(question.explanation)
                             question.sourceExcerpt?.let { Text("Цитата: $it") }
                         }
@@ -134,7 +135,7 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
     ScreenList {
         item { SectionHeading("Результат", quiz.title) }
         item {
-            StudyPanel(PanelTone.LAVENDER) {
+            StudyPanel(tone = PanelTone.LAVENDER) {
                 Text(percent?.let { "$it%" } ?: "Нет оцениваемых вопросов", style = MaterialTheme.typography.headlineMedium)
                 Text("Правильных ответов: ${score.correct} из ${score.gradedTotal}")
                 percent?.let { LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth()) }
@@ -150,7 +151,7 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
             }
         }
         item { SectionHeading("Работа над ошибками") }
-        if (missed.isEmpty()) item { StudyPanel(PanelTone.SKY) { Text("Среди оцениваемых вопросов нет ошибок или пропусков.") } }
+        if (missed.isEmpty()) item { StudyPanel(tone = PanelTone.SKY) { Text("Среди оцениваемых вопросов нет ошибок или пропусков.") } }
         items(missed, key = { quiz.questions[it].id }) { index ->
             val question = quiz.questions[index]
             StudyPanel {

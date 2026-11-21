@@ -6,6 +6,7 @@ import org.json.JSONTokener
 
 object QuizJson {
     fun parse(source: String): Quiz {
+        JsonInputLimits.check(source)
         val input = JSONTokener(source)
         val root = JSONObject(input)
         require(input.nextClean() == '\u0000') { "После теста остались лишние данные" }

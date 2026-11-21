@@ -10,7 +10,12 @@ import java.util.UUID
 
 internal data class AiReview(val summary: String, val steps: List<String>)
 
-internal class AiClient(private val settings: StudySettings) {
+internal class AiClient(private val settings: StudySettings, private val authToken: suspend () -> String = { error("Войдите в аккаунт для использования ИИ") }, private val endpoint: String = ProductionConfig.SERVER) {
+        suspend fun extract(mime: String, data: String): String = request("extract",
+        JSONObject().put("mimeType", mime).put("data", data)).getString("text").also {
+        require(it.isNotBlank() && it.length <= 12_000) { "Не удалось распознать текст или документ слишком длинный" }
+    }
+
     suspend fun configured(): Boolean = request("status").getBoolean("configured")
 
     suspend fun quiz(topic: String, material: String, difficulty: String, count: Int): Quiz {
@@ -50,7 +55,8 @@ internal class AiClient(private val settings: StudySettings) {
             .put("difficulty", difficulty).put("count", count)
 
     private suspend fun request(route: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
-        val base = baseUri(settings.server)
+        val base = baseUri(endpoint)
+        val token = authToken()
         val url = URI.create(base.toString().trimEnd('/') + "/api/v1/ai/$route").toURL()
         val connection = url.openConnection() as HttpURLConnection
         try {
@@ -58,10 +64,9 @@ internal class AiClient(private val settings: StudySettings) {
             connection.readTimeout = 35000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
-            if (settings.accessToken.isNotBlank()) {
-                connection.setRequestProperty("Authorization", "Bearer ${settings.accessToken}")
-            }
+            connection.setRequestProperty("Authorization", "Bearer $token")
             if (body != null) {
+                connection.setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
                 val encoded = body.toString().toByteArray(Charsets.UTF_8)
                 connection.requestMethod = "POST"
                 connection.doOutput = true
@@ -84,7 +89,13 @@ internal class AiClient(private val settings: StudySettings) {
             }.orEmpty()
             if (status !in 200..299) {
                 val detail = runCatching { JSONObject(data).optString("detail").take(180) }.getOrNull()
-                error(detail?.ifBlank { null } ?: "Сервер вернул ошибку $status")
+                error(when (status) {
+                    401 -> "Войдите в аккаунт снова"
+                    403 -> "Подтвердите электронную почту в личном кабинете"
+                    429 -> "Лимит ИИ исчерпан. Попробуйте позже"
+                    502, 503, 504 -> "ИИ временно недоступен. Попробуйте позже"
+                    else -> detail?.ifBlank { null } ?: "Сервер вернул ошибку $status"
+                })
             }
             JSONObject(data)
         } finally {

@@ -54,10 +54,10 @@ internal fun FlashcardScreen(cards: List<Flashcard>, onSave: (List<Flashcard>) -
             TextButton(onClick = { leaveCards() }) { Text("Назад") }
             SectionHeading("Карточки", "Повторяй материал в своём темпе.")
         }
-        if (card == null) item { StudyPanel(PanelTone.LAVENDER) { Text("Добавь первую карточку.") } }
+        if (card == null) item { StudyPanel(tone = PanelTone.LAVENDER) { Text("Добавь первую карточку.") } }
         else {
             item {
-                StudyPanel(if (flipped) PanelTone.SKY else PanelTone.LAVENDER, onClick = { flipped = !flipped }) {
+                StudyPanel(tone = if (flipped) PanelTone.SKY else PanelTone.LAVENDER, onClick = { flipped = !flipped }) {
                     Text("Карточка ${index + 1} из ${cards.size}", style = MaterialTheme.typography.labelLarge)
                     Text(if (flipped) "Обратная сторона" else "Лицевая сторона", style = MaterialTheme.typography.labelLarge)
                     Box(Modifier.fillMaxWidth().heightIn(min = 125.dp).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
@@ -112,7 +112,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
     var title by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var topics by rememberSaveable { mutableStateOf("") }
-    var links by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var links by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var calendar by rememberSaveable { mutableStateOf(false) }
     var attemptId by rememberSaveable { mutableStateOf<String?>(null) }
     var materials by rememberSaveable { mutableStateOf(false) }
@@ -127,7 +127,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
                 TextButton(onClick = { attemptId = null }) { Text("К истории") }
                 SectionHeading(selectedAttempt.title, displayDate(selectedAttempt.completedAt))
             }
-            item { StudyPanel(PanelTone.LAVENDER) {
+            item { StudyPanel(tone = PanelTone.LAVENDER) {
                 Text("Правильно: ${selectedAttempt.score.correct} из ${selectedAttempt.score.gradedTotal}")
             } }
             if (selectedAttempt.mistakes.isEmpty()) item { StudyPanel { Text("Нет ошибок или пропусков.") } }
@@ -187,7 +187,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
         .filterValues { it > 0 }.entries.sortedByDescending { it.value }.take(5)
     ScreenList {
         item { SectionHeading("Подготовка", "Экзамены, повторение и результаты занятий.") }
-        item { StudyPanel(PanelTone.LAVENDER) {
+        item { StudyPanel(tone = PanelTone.LAVENDER) {
             Text("Экзамены", style = MaterialTheme.typography.titleLarge)
             if (data.exams.isEmpty()) Text("Добавь дисциплину и дату, чтобы составить план повторения.")
             Button(onClick = {
@@ -211,7 +211,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
                 }) { Text("Изменить экзамен") }
             }
         }
-        if (weak.isNotEmpty()) item { StudyPanel(PanelTone.SKY) {
+        if (weak.isNotEmpty()) item { StudyPanel(tone = PanelTone.SKY) {
             Text("Темы для повторения", style = MaterialTheme.typography.titleMedium)
             weak.forEach { Text("${it.key} · ошибок и пропусков: ${it.value}") }
         } }
@@ -228,7 +228,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -> Boolean, onBack: () -> Unit) {
+internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -> Boolean, onBack: () -> Unit, onAccount: () -> Unit) {
     var value by remember(settings) { mutableStateOf(settings) }
     var limit by rememberSaveable { mutableStateOf(settings.limit.toString()) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
@@ -237,7 +237,10 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
             Text("Тема оформления", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("system" to "Как в системе", "light" to "Светлая", "dark" to "Тёмная").forEach { (key, label) ->
-                    FilterChip(value.theme == key, { value = value.copy(theme = key, dark = key == "dark") }, label = { Text(label) })
+                    FilterChip(value.theme == key, {
+                        val changed = value.copy(theme = key, dark = key == "dark")
+                        if (onSave(changed)) value = changed else error = "Не удалось сохранить тему"
+                    }, label = { Text(label) })
                 }
             }
         }
@@ -249,20 +252,12 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
             Preference("Показывать подсказки", value.showHints) { value = value.copy(showHints = it) }
             Preference("Показывать ключ после теста", value.showAnswers) { value = value.copy(showAnswers = it) }
             Text("Таймер по умолчанию")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0, 10, 20, 40).forEach { minutes ->
-                    FilterChip(value.minutes == minutes, { value = value.copy(minutes = minutes) },
-                        label = { Text(if (minutes == 0) "Без таймера" else "$minutes мин") })
-                }
-            }
+            TimerSelector(value.minutes) { value = value.copy(minutes = it) }
         }
-        StudyPanel(PanelTone.SKY) {
-            Text("Интеграция с ИИ", style = MaterialTheme.typography.titleMedium)
-            Text(if (value.server.isBlank()) "Сервер пока не настроен." else "Проверь подключение в разделе «Создать с ИИ».")
-            StudyField(value.server, { value = value.copy(server = it.trim()) }, "Адрес сервера")
-            OutlinedTextField(value.accessToken, { value = value.copy(accessToken = it.trim()) },
-                label = { Text("Код доступа к серверу") }, modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation())
+        StudyPanel(tone = PanelTone.SKY) {
+            Text("Личный кабинет", style = MaterialTheme.typography.titleMedium)
+            Text("Для онлайн-функций используется ваш аккаунт. Локальные данные остаются на устройстве.")
+            OutlinedButton(onClick = onAccount) { Text("Аккаунт и доступ к ИИ") }
         }
         error?.let { StudyError(it) }
         Button(onClick = {

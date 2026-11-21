@@ -18,13 +18,25 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun SoftStudyTheme(mode: String, content: @Composable () -> Unit) {
-    kz.quizgenerator.ui.theme.SteamTheme(mode, content)
+    kz.quizgenerator.ui.theme.SteamTheme(mode) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val dark = when (mode) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
+        androidx.compose.runtime.SideEffect {
+            (context as? android.app.Activity)?.let { activity ->
+                androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                    isAppearanceLightStatusBars = false // The shared top bar is navy in both themes.
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+        }
+        content()
+    }
 }
 
 internal enum class Glyph { HOME, ADD, LIBRARY, PLAN, SETTINGS, FILE, AI, EDIT, CARDS }
 
 @Composable
-internal fun StudyIcon(glyph: Glyph, description: String? = null, modifier: Modifier = Modifier) {
+internal fun StudyIcon(glyph: Glyph, modifier: Modifier = Modifier, description: String? = null) {
     val tint = LocalContentColor.current
     Canvas(modifier.size(24.dp).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description })) {
         val stroke = 1.8.dp.toPx()
@@ -63,7 +75,7 @@ internal fun StudyIcon(glyph: Glyph, description: String? = null, modifier: Modi
 internal enum class PanelTone { PLAIN, LAVENDER, SKY }
 
 @Composable
-internal fun StudyPanel(tone: PanelTone = PanelTone.PLAIN, modifier: Modifier = Modifier,
+internal fun StudyPanel(modifier: Modifier = Modifier, tone: PanelTone = PanelTone.PLAIN,
                         onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val click = if (onClick == null) modifier else modifier.clickable(onClick = onClick)
     kz.quizgenerator.ui.components.SteamCard(click) { content() }
@@ -87,7 +99,7 @@ internal fun StudyError(message: String) {
 
 @Composable
 internal fun StudyLoading(label: String, fraction: Float? = null, cancel: (() -> Unit)? = null) {
-    StudyPanel(PanelTone.SKY) {
+    StudyPanel(tone = PanelTone.SKY) {
         Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         else LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())

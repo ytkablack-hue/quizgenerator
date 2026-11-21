@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,21 +27,26 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val auth = AuthClient(applicationContext)
         val repository = QuizRepository(applicationContext)
         val editor = ViewModelProvider(this)[EditorModel::class.java]
         setContent {
             val store = remember { StudyStore(File(filesDir, "study.json")) }
-            val initial = remember { runCatching { store.load() } }
+            val activeStore = remember { ActiveAttemptStore(File(filesDir, "active-attempt.json")) }
+            val bootCount = android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+            val initial = remember { runCatching { store.load().also(store::save) } }
             var study by remember { mutableStateOf(initial.getOrDefault(StudyData())) }
             var failure by remember { mutableStateOf(if (initial.isFailure) "Не удалось прочитать данные подготовки" else null) }
             SoftStudyTheme(study.settings.theme) {
-                TestHelperApp(repository, editor, study, { updated ->
+              CompositionLocalProvider(LocalAuth provides auth) {
+                TestHelperApp(repository, editor, study, activeStore, bootCount, { updated ->
                     runCatching {
                         check(initial.isSuccess) { "Файл подготовки не читается" }
                         store.save(updated)
                     }.onSuccess { study = updated; failure = null }
                         .onFailure { failure = "Не удалось сохранить данные подготовки" }.isSuccess
                 }, failure)
+              }
             }
         }
     }
@@ -49,33 +55,49 @@ class MainActivity : ComponentActivity() {
 private enum class Page(val title: String, val glyph: Glyph? = null) {
     HOME("Главная", Glyph.HOME), CREATE("Создать", Glyph.ADD), LIBRARY("Библиотека", Glyph.LIBRARY),
     PREPARATION("Подготовка", Glyph.PLAN), AI("Создать с ИИ"), CARDS("Карточки"), SETTINGS("Настройки"),
-    EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
+    ACCOUNT("Личный кабинет"), EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
 }
 
 private enum class Confirmation { DISCARD_DRAFT, LEAVE_QUIZ, FINISH_QUIZ }
 
 @Composable
 private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study: StudyData,
-                          update: (StudyData) -> Boolean, storageError: String?) {
+                          activeStore: ActiveAttemptStore, bootCount: Int, update: (StudyData) -> Boolean, storageError: String?) {
     var quizzes by remember { mutableStateOf(repository.listQuizzes()) }
-    var page by rememberSaveable { mutableStateOf(Page.HOME) }
+    val restoreResult = remember { runCatching { activeStore.load() } }
+    val restored = restoreResult.getOrNull()
+    val screenStates = rememberSaveableStateHolder()
+    var sessionQuiz by remember { mutableStateOf(restored?.quiz) }
+    var wallDeadline by rememberSaveable { mutableLongStateOf(restored?.wallDeadline ?: 0L) }
+    var page by rememberSaveable { mutableStateOf(if (restored != null) Page.QUIZ else Page.HOME) }
+    var creationSource by rememberSaveable { mutableStateOf(CreationSource.CHOOSE) }
     var editorReturn by rememberSaveable { mutableStateOf(Page.CREATE) }
+    var accountReturn by rememberSaveable { mutableStateOf(Page.SETTINGS) }
     var settingsReturn by rememberSaveable { mutableStateOf(Page.HOME) }
-    var quizId by rememberSaveable { mutableStateOf<String?>(null) }
-    val currentQuiz = quizzes.firstOrNull { it.id == quizId }
-    var questionIndex by rememberSaveable { mutableIntStateOf(0) }
+    var quizId by rememberSaveable { mutableStateOf<String?>(restored?.quiz?.id) }
+    var reviewOverride by remember { mutableStateOf<Quiz?>(null) }
+    val currentQuiz = reviewOverride ?: quizzes.firstOrNull { it.id == quizId } ?: sessionQuiz
+    var questionIndex by rememberSaveable { mutableIntStateOf(restored?.index ?: 0) }
+    LaunchedEffect(Unit) { if (restored != null && editor.activeAnswers.isEmpty()) editor.activeAnswers = restored.answers }
     var answers by editor::activeAnswers
     var seed by rememberSaveable { mutableLongStateOf(0L) }
-    var attemptId by rememberSaveable { mutableStateOf("") }
+    var attemptId by rememberSaveable { mutableStateOf(restored?.attemptId ?: "") }
     var timerMinutes by rememberSaveable { mutableIntStateOf(study.settings.minutes) }
-    var deadline by rememberSaveable { mutableLongStateOf(0L) }
+    var deadline by rememberSaveable { mutableLongStateOf(restored?.let {
+        if (it.elapsedDeadline == 0L) 0L
+        else if (bootCount >= 0 && it.bootCount == bootCount) it.elapsedDeadline
+        else SystemClock.elapsedRealtime() + (it.wallDeadline - System.currentTimeMillis()).coerceAtLeast(0)
+    } ?: 0L) }
     var seconds by remember(deadline) { mutableIntStateOf(QuizTimer.secondsLeft(deadline, SystemClock.elapsedRealtime())) }
     var expired by rememberSaveable { mutableStateOf(false) }
-    val prepared = remember(currentQuiz, study.settings, seed) { currentQuiz?.let { StudyLogic.prepare(it, study.settings, seed) } }
+    val bankPrepared = remember(currentQuiz, study.settings, seed) { currentQuiz?.let { StudyLogic.prepare(it, study.settings, seed) } }
+    val prepared = sessionQuiz ?: bankPrepared
 
     var draftError by rememberSaveable { mutableStateOf<String?>(null) }
     var libraryError by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var aiTask by rememberSaveable { mutableStateOf("quizzes") }
+    var aiAttemptId by rememberSaveable { mutableStateOf<String?>(null) }
     var showCardCreation by rememberSaveable { mutableStateOf(false) }
     var confirmation by rememberSaveable { mutableStateOf<Confirmation?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -96,6 +118,8 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     }
 
     fun openQuiz(quiz: Quiz) {
+        sessionQuiz = null
+        reviewOverride = quiz.takeIf { candidate -> quizzes.none { it == candidate } }
         quizId = quiz.id
         timerMinutes = study.settings.minutes
         page = Page.REVIEW
@@ -104,9 +128,11 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     fun start(quiz: Quiz) {
         questionIndex = 0
         seed = System.nanoTime()
-        answers = ArrayList(List(StudyLogic.prepare(quiz, study.settings, seed).questions.size) { null })
+        sessionQuiz = StudyLogic.prepare(quiz, study.settings, seed)
+        answers = ArrayList(List(sessionQuiz!!.questions.size) { null })
         attemptId = UUID.randomUUID().toString()
         deadline = QuizTimer.deadline(SystemClock.elapsedRealtime(), timerMinutes)
+        wallDeadline = QuizTimer.deadline(System.currentTimeMillis(), timerMinutes)
         expired = false
         confirmation = null
         page = Page.QUIZ
@@ -117,12 +143,22 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         val quiz = prepared ?: return
         if (answers.size != quiz.questions.size) return
         val attempt = StudyLogic.complete(attemptId, quiz, answers, System.currentTimeMillis())
-        if (study.attempts.none { it.id == attempt.id }) update(study.copy(attempts = study.attempts + attempt))
+        if (study.attempts.none { it.id == attempt.id } && !update(study.copy(attempts = study.attempts + attempt))) {
+            libraryError = "Не удалось сохранить результат. Повторите завершение"
+            return
+        }
+        runCatching { activeStore.clear() }
         expired = QuizTimer.expired(deadline, SystemClock.elapsedRealtime())
         confirmation = null
         page = Page.RESULTS
     }
 
+    LaunchedEffect(page, prepared, answers, questionIndex, deadline) {
+        if (page == Page.QUIZ && prepared != null && answers.size == prepared.questions.size) {
+            runCatching { activeStore.save(ActiveAttempt(prepared, answers, questionIndex, attemptId, deadline, wallDeadline, bootCount)) }
+                .onFailure { libraryError = "Не удалось сохранить текущие ответы" }
+        }
+    }
     val finishLatest by rememberUpdatedState(::finish)
     LaunchedEffect(page, deadline) {
         while (page == Page.QUIZ && deadline != 0L) {
@@ -157,6 +193,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             Page.HOME -> Unit
             Page.CREATE -> { editor.cancel(); page = Page.HOME }
             Page.AI -> page = Page.CREATE
+            Page.ACCOUNT -> page = accountReturn
             Page.CARDS, Page.REVIEW, Page.RESULTS -> page = Page.LIBRARY
             Page.SETTINGS -> page = settingsReturn
             Page.QUESTION -> page = Page.EDITOR
@@ -176,6 +213,8 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             confirmation = null
             page = Page.REVIEW
             deadline = 0L
+            runCatching { activeStore.clear() }
+            sessionQuiz = null
         }
         Confirmation.FINISH_QUIZ -> StudyConfirmation("Завершить тест?",
             "Результат будет добавлен в историю.", "Завершить", { confirmation = null }, ::finish)
@@ -215,7 +254,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         )
     }
 
-    val tabs = listOf(Page.HOME, Page.CREATE, Page.LIBRARY, Page.PREPARATION)
+    val tabs = listOf(Page.HOME, Page.CREATE, Page.PREPARATION)
     val mainPage = page in tabs
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -227,7 +266,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     onBack = if (!mainPage && page != Page.CARDS) ::goBack else null,
                     trailing = if (mainPage) ({
                         IconButton(onClick = { settingsReturn = page; page = Page.SETTINGS }) {
-                            StudyIcon(Glyph.SETTINGS, "Настройки")
+                            StudyIcon(Glyph.SETTINGS, description = "Настройки")
                         }
                     }) else null
                 )
@@ -249,29 +288,37 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 14.dp, vertical = 8.dp)) {
                 storageError?.let { StudyError(it); Spacer(Modifier.height(6.dp)) }
+                if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")
+                screenStates.SaveableStateProvider(page.name) {
                 when (page) {
-                    Page.HOME -> HomeScreen(study, { page = Page.CREATE }, { page = Page.CARDS },
-                        {
-                            val recent = study.attempts.asReversed().firstNotNullOfOrNull { attempt ->
-                                quizzes.firstOrNull { it.id == attempt.quizId }
-                            }
-                            if (recent == null) page = Page.LIBRARY else openQuiz(recent)
-                        }, { page = Page.PREPARATION })
-                    Page.CREATE -> CreateScreen(editor.load, editor.failure,
-                        { chooser.launch(arrayOf("text/plain", "application/json", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream")) },
-                        editor::cancel, { page = Page.AI }, { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) })
+                    Page.HOME -> HomeScreen { source -> creationSource = source; aiTask = "quizzes"; page = if (source == CreationSource.AI) Page.AI else Page.CREATE }
+                    Page.CREATE -> {
+                        editor.load?.let { StudyLoading("Обработка документа", it.fraction, editor::cancel) }
+                        editor.failure?.let { StudyError(it) }
+                        CreationFlow(creationSource,
+                            onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
+                            onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) },
+                            onDraft = { openDraft(QuizDraft(it), Page.CREATE) }, onAccount = { accountReturn = page; page = Page.ACCOUNT })
+                    }
                     Page.LIBRARY -> LibraryScreen(quizzes, repository::modifiedAt, libraryError, ::openQuiz,
                         { openDraft(QuizDraft(it, original = it), Page.LIBRARY) }, { deleteId = it.id },
                         repository::canDelete, { page = Page.CARDS }, { page = Page.CREATE },
                         cardCount = { quiz -> study.cards.count { it.sourceQuizId == quiz.id } },
                         quizCards = { quiz -> openQuiz(quiz); showCardCreation = true },
                         onImport = { page = Page.CREATE; chooser.launch(arrayOf("*/*")) })
-                    Page.PREPARATION -> PreparationScreen(study, quizzes) { update(study.copy(exams = it)) }
+                    Page.PREPARATION -> PreparationHub(study, quizzes, { update(study.copy(exams = it)) },
+                        library = { LibraryScreen(quizzes, repository::modifiedAt, libraryError, ::openQuiz,
+                            { openDraft(QuizDraft(it, original = it), Page.PREPARATION) }, { deleteId = it.id },
+                            repository::canDelete, { page = Page.CARDS }, { creationSource = CreationSource.CHOOSE; page = Page.CREATE },
+                            cardCount = { quiz -> study.cards.count { it.sourceQuizId == quiz.id } },
+                            quizCards = { quiz -> openQuiz(quiz); showCardCreation = true }, onImport = { chooser.launch(arrayOf("*/*")) }) },
+                        onCards = { page = Page.CARDS }, onAi = { aiAttemptId = it?.id; aiTask = if (it == null) "cards" else "review"; page = Page.AI }, onRepeat = ::openQuiz)
                     Page.CARDS -> CoinFlashcardsScreen(study.cards, { update(study.copy(cards = it)) }, { page = Page.LIBRARY })
-                    Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::goBack)
-                    Page.AI -> AiScreen(study.settings, study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
+                    Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::goBack, { accountReturn = page; page = Page.ACCOUNT })
+                    Page.ACCOUNT -> AccountScreen(::goBack)
+                    Page.AI -> AiScreen(study.settings, study.attempts.firstOrNull { it.id == aiAttemptId } ?: study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
                         repository::readStudyMaterial, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
-                        saveCards = { update(study.copy(cards = study.cards + it)) }, onBack = ::goBack)
+                        saveCards = { update(study.copy(cards = study.cards + it)) }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask)
                     Page.EDITOR -> editor.draft?.let { draft ->
                         DraftScreen(draft,
                             { editor.draft = draft.copy(quiz = it); draftError = null },
@@ -320,6 +367,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     Page.RESULTS -> prepared?.takeIf { answers.size == it.questions.size }?.let {
                         ResultsScreen(it, answers, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack)
                     }
+                }
                 }
             }
         }

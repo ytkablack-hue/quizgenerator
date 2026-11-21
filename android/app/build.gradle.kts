@@ -12,13 +12,27 @@ android {
         applicationId = "kz.quizgenerator"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val uploadStore = providers.environmentVariable("TESTHELPER_UPLOAD_STORE_FILE").orNull
+    if (uploadStore != null) {
+        signingConfigs.create("upload") {
+            storeFile = file(uploadStore)
+            storePassword = providers.environmentVariable("TESTHELPER_UPLOAD_STORE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("TESTHELPER_UPLOAD_KEY_ALIAS").get()
+            keyPassword = providers.environmentVariable("TESTHELPER_UPLOAD_KEY_PASSWORD").get()
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            if (uploadStore != null) signingConfig = signingConfigs.getByName("upload")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
     }
 
     compileOptions {
@@ -40,5 +54,5 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260719")
 }

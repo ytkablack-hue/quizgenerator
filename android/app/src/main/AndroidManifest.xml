@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
+        android:icon="@drawable/ic_testhelper"
         android:label="TestHelper"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
