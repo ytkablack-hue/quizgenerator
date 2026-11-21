@@ -1,6 +1,6 @@
 # TestHelper 0.4.0 — фактическая проверка
 
-21 ноября 2026. Beta для дальнейшей проверки, НЕ готовый магазинный релиз. Ветка feature/android-mvp.
+21 ноября 2026. Обновление SDK: сборка versionCode 6. Beta для дальнейшей проверки, НЕ готовый магазинный релиз. Ветка feature/android-mvp.
 
 ## Реализовано в Android
 
@@ -20,7 +20,7 @@ Production HTTPS URL без общего секрета; вход/регистр
 
 - :app:testDebugUnitTest — 51 тест, 0 ошибок/падений/пропусков. Есть импорт TXT/DOCX/JSON, русский текст, оценки, редактор, карточки, таймер, восстановление снимка, миграция настроек, JSON resource limits и HTTP-фикстуры всех трёх AI-маршрутов. Последние проверяют клиент на локальном HTTP-сервере, не Firebase/Gemini в облаке.
 - node --test backend/cloudflare/tests/security.test.mjs — 32 теста, все прошли. Реальная RSA-криптография с временными тестовыми ключами; Firebase/Gemini/хранилище подменены заглушками. Проверены поддельные/просроченные токены, scope/issuer, удалённые аккаунты, гонки квот, повторы, размеры, неавторизованные вызовы, три AI-маршрута и удаление аккаунтов. Это не тест Cloudflare runtime.
-- :app:lintDebug — No issues found.
+- :app:lintDebug — 0 ошибок, 3 предупреждения о доступных новых версиях Gradle, Compose BOM и Activity. Массовое обновление UI-зависимостей в этот этап не включено.
 - :app:assembleDebug — успешно; :app:bundleRelease — успешно, R8 и shrinkResources выполнены.
 - APK apksigner verify — успешно. Сертификат SHA-256 710f7ec2403e51ae9423bc84de097ace7abb474d5f6d89c943d25075b17f333e, совпадает с прежним debug APK.
 - AAB jarsigner verify — jar is unsigned. Это ожидаемый проверочный артефакт без upload key, не готовый к Google Play.
@@ -31,21 +31,21 @@ Production HTTPS URL без общего секрета; вход/регистр
 ## Артефакты
 
 APK: C:/Projects/quizgenerator/android/app/build/outputs/apk/debug/app-debug.apk
-Размер: 10983000 байт.
-SHA-256: bbffd3e11985da7165571001791f2fc89ddcefa1157f5a85d951470b03f64242
+Размер: 10600504 байт.
+SHA-256: 731242cfd46abcfde0212ddf3c5b642604f0a637ddcc1ee93ed79e54ebe62430
 
 AAB: C:/Projects/quizgenerator/android/app/build/outputs/bundle/release/app-release.aab
-Размер: 3470446 байт.
-SHA-256: aff82fabaf047dbf34fbadd14e1073ca597ceb12b9fc0d969bb44f078dd1dbf8
+Размер: 3416446 байт.
+SHA-256: d2b48ddeb67dbff0f39e5761954a0699e90dc11ec3418dcc53aec607f947b9e3
 
-Пакет kz.quizgenerator, versionName 0.4.0, versionCode 5, minSdk 26, compile/target SDK 35. Требуемый API 36 пока не установлен/не применён; не считать AAB соответствующим Play.
+Пакет kz.quizgenerator, versionName 0.4.0, versionCode 6, minSdk 26, compile/target SDK 36. Установлены Platform 36 revision 2, Build Tools 35.0.0 и необходимые Platform Tools. AGP 8.10.1, Gradle 8.11.1, JDK 17. Wrapper обновлён стандартной задачей и проверен по официальным SHA-256. AAB всё ещё не подписан production-ключом, live Firebase/телефон не проверены.
 
 ## Не проверено / требует завершения
 
 1. Подтверждение бесплатного Firebase Spark, Email/Password и условий сервиса; production-параметры и бесплатная SQLite Durable Object binding в существующем Worker. Новый Worker не нужен.
 2. Реальная регистрация, письмо, восстановление, refresh/выход/удаление аккаунта, живые квоты и Gemini из APK. Без облачной настройки эти сценарии заблокированы. В том числе не проверено реальное распознавание русских PDF/фото, повреждённых вложений и модельные ответы новой интеграции.
 3. Телефон: навигация, theme/system bars/контраст, большой шрифт и TalkBack, поворот и фон, убийство процесса и перезагрузка, auto-finish, offline, обновление 0.3.1 с пользовательскими данными. Эмулятор/ADB не запускались.
-4. Разрешение установки SDK 36 и обновления совместимого AGP, затем повторные проверки target36 и системных изменений Android16.
+4. SDK 36/AGP/Wrapper уже обновлены и статически проверены; остаются runtime/UI-проверки системных изменений Android 16 на устройстве.
 5. Production upload key/Play App Signing, политика с контактами владельца, Data safety/возраст/контент/скриншоты, закрытое тестирование по требованиям аккаунта. Юридические сведения не выдуманы.
 6. iOS: выбран отдельный SwiftUI-клиент с общим backend; пока есть контракт/план, нет iOS-приложения, сборки, подписи и TestFlight. Нужны Mac/Xcode и Apple Developer account.
 
