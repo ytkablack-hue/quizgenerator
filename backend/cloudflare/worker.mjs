@@ -44,11 +44,13 @@ export default {
       return respond({projectId:env.FIREBASE_PROJECT_ID,apiKey:env.FIREBASE_WEB_API_KEY});
     }
     if(request.method==='GET'&&path==='/delete-account')return deletionPage();
-    if(!path.startsWith('/api/v1/ai/'))return fail('Маршрут не найден.',404);
+    const deleting=path==='/api/v1/account'&&request.method==='DELETE';
+    if(!path.startsWith('/api/v1/ai/')&&!deleting)return fail('Маршрут не найден.',404);
     const token=request.headers.get('Authorization')?.match(/^Bearer ([^\s]+)$/)?.[1];
     if(!token)return fail('Войдите в аккаунт.',401);
     const legacy=env.TESTHELPER_ACCESS_TOKEN&&token===env.TESTHELPER_ACCESS_TOKEN;
-    let uid='legacy-admin',ip;
+    let uid='legacy-admin',ip,claims;
+    if(deleting&&legacy)return fail('Нужен личный аккаунт.',401);
     try {
       ip=await digest(request.headers.get('CF-Connecting-IP')||'unknown');
       if(!legacy){
@@ -56,14 +58,22 @@ export default {
         const limited=await quota(env,{phase:'auth',ip});
         if(limited.status===429)return fail('Слишком много запросов. Попробуйте позже.',429);
         if(!limited.ok)throw Error('quota unavailable');
-        let claims;
-        try {claims=await verifyToken(token,env.FIREBASE_PROJECT_ID); await activeUser(token,claims,env.FIREBASE_WEB_API_KEY);}
+
+        try {claims=await verifyToken(token,env.FIREBASE_PROJECT_ID,{requireVerified:!deleting}); await activeUser(token,claims,env.FIREBASE_WEB_API_KEY,fetch,!deleting);}
         catch(e){
           if(e?.message==='email unverified')return fail('Подтвердите почту в личном кабинете.',403);
           if(e?.message==='auth unavailable'||['TypeError','TimeoutError'].includes(e?.name))return fail('Служба входа временно недоступна.',503);
           return fail('Войдите снова.',401);
         }
         uid=claims.sub;
+      }
+      if(deleting){
+        if(!claims||Math.floor(Date.now()/1000)-claims.auth_time>300)return fail('Подтвердите вход снова перед удалением.',401);
+        const removed=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key='+encodeURIComponent(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token}),signal:AbortSignal.timeout(8000),redirect:'error'});
+        if(!removed.ok)return fail('Не удалось удалить аккаунт. Войдите снова.',401);
+        const cleaned=await quota(env,{phase:'erase',ip,uid:await digest(uid)});
+        if(!cleaned.ok)throw Error('quota unavailable');
+        return respond({deleted:true});
       }
       if(request.method==='GET'&&path==='/api/v1/ai/status')return respond({configured:Boolean(env.GEMINI_API_KEY)});
       const kind=path.split('/').pop();

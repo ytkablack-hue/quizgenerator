@@ -88,6 +88,13 @@ paths:
       responses:
         '200':
           description: JSON text, nonempty and at most 12000 characters; user must review OCR
+  /api/v1/account:
+    delete:
+      responses:
+        '200':
+          description: Firebase account deleted and UID-specific quota records removed; recent authentication required, email verification optional
+        '401':
+          description: Authenticate again within five minutes before deleting the account
   /delete-account:
     get:
       security: []

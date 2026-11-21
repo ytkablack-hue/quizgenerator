@@ -6,7 +6,7 @@ function decode(value) {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/');
   return Uint8Array.from(atob(padded), c => c.charCodeAt(0));
 }
-export async function verifyToken(token, project, {fetcher = fetch, now = Date.now(), keys} = {}) {
+export async function verifyToken(token, project, {fetcher = fetch, now = Date.now(), keys, requireVerified = true} = {}) {
   if (!project || typeof token !== 'string' || token.length > 8192) throw Error('invalid token');
   const parts = token.split('.');
   if (parts.length !== 3) throw Error('invalid token');
@@ -36,11 +36,11 @@ export async function verifyToken(token, project, {fetcher = fetch, now = Date.n
   const key = await crypto.subtle.importKey('jwk', jwk, {name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256'}, false, ['verify']);
   const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, decode(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
   if (!valid) throw Error('invalid token');
-  if (claims.email_verified !== true) throw Error('email unverified');
+  if (requireVerified && claims.email_verified !== true) throw Error('email unverified');
   return claims;
 }
 
-export async function activeUser(token, claims, apiKey, fetcher = fetch) {
+export async function activeUser(token, claims, apiKey, fetcher = fetch, requireVerified = true) {
   // Lookup rejects deleted/disabled users and revoked sessions; do not cache positive results.
   const response = await fetcher('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(apiKey), {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({idToken: token}),
@@ -48,7 +48,7 @@ export async function activeUser(token, claims, apiKey, fetcher = fetch) {
   });
   if (!response.ok) throw Error(response.status >= 500 || response.status === 429 ? 'auth unavailable' : 'invalid session');
   const user = (await response.json()).users?.[0];
-  if (!user || user.localId !== claims.sub || user.disabled || user.emailVerified !== true ||
+  if (!user || user.localId !== claims.sub || user.disabled || (requireVerified && user.emailVerified !== true) ||
       Number(user.validSince || 0) > claims.auth_time) throw Error('invalid session');
   return user;
 }

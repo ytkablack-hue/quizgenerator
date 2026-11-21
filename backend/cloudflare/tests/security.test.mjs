@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {verifyToken, activeUser} from '../auth.mjs';
+import {verifyToken, activeUser, digest} from '../auth.mjs';
 import {readInput, validateResult} from '../ai-core.mjs';
 import {AiQuota} from '../quota.mjs';
 import worker from '../worker.mjs';
@@ -117,7 +117,7 @@ test('deletion page has strict CSP and never places credentials in URL or storag
  const response=await worker.fetch(new Request('https://test/delete-account'),{});
  const html=await response.text();
  assert.equal(response.status,200);assert.ok(response.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
- assert.ok(html.includes("call('delete'"));assert.ok(!html.includes('localStorage'));assert.ok(!html.includes('GEMINI_API_KEY'));
+ assert.ok(html.includes("fetch('/api/v1/account'"));assert.ok(!html.includes('localStorage'));assert.ok(!html.includes('GEMINI_API_KEY'));
 });
 test('Worker rejects oversized JSON, wrong content type and client-supplied privilege fields',async()=>{
  const env={TESTHELPER_ACCESS_TOKEN:'unit-test-only',GEMINI_API_KEY:'fake-key'};
@@ -146,5 +146,25 @@ for(const [route,payload,modelResult] of [
  try {
   const response=await worker.fetch(new Request('https://test/api/v1/ai/'+route,{method:'POST',headers:{Authorization:'Bearer '+idToken,'Content-Type':'application/json','X-Request-ID':crypto.randomUUID()},body:JSON.stringify(payload)}),env);
   assert.equal(response.status,200);const body=await response.text();assert.ok(!body.includes(env.GEMINI_API_KEY));assert.ok(!body.includes(idToken));assert.equal(providerCalls,1);
+ } finally {globalThis.fetch=originalFetch;}
+});
+for(const providerSucceeds of [true,false]) test('account deletion only clears quotas after provider success: '+providerSucceeds,async()=>{
+ const originalFetch=globalThis.fetch,storage=new Storage(),quotaObject=new AiQuota({storage});
+ const uid=await digest('user-a'),day=Math.floor(Date.now()/86400000);
+ storage.values.set(`user-day:${day}:${uid}`,20);storage.values.set(`global:${day}`,8);
+ const env={FIREBASE_PROJECT_ID:project,FIREBASE_WEB_API_KEY:'fake-public-key',AI_QUOTA:{idFromName:name=>name,get:()=>({fetch:(url,init)=>quotaObject.fetch(new Request(url,init))})}};
+ const current=Math.floor(Date.now()/1000),idToken=await token({...claims,email_verified:false,iat:current-1,exp:current+3500,auth_time:current-5});
+ let deletes=0;
+ globalThis.fetch=async(url)=>{
+  if(String(url).includes('/service_accounts/'))return Response.json({keys:[jwk]});
+  if(String(url).includes('accounts:lookup'))return Response.json({users:[{localId:'user-a',emailVerified:false}]});
+  assert.ok(String(url).includes('accounts:delete'));deletes++;
+  return Response.json({}, {status:providerSucceeds?200:400});
+ };
+ try {
+  const response=await worker.fetch(new Request('https://test/api/v1/account',{method:'DELETE',headers:{Authorization:'Bearer '+idToken}}),env);
+  assert.equal(response.status,providerSucceeds?200:401);assert.equal(deletes,1);
+  assert.equal(storage.values.has(`user-day:${day}:${uid}`),!providerSucceeds);
+  assert.equal(storage.values.get(`global:${day}`),8);
  } finally {globalThis.fetch=originalFetch;}
 });

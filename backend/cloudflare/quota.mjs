@@ -9,6 +9,13 @@ export class AiQuota {
   async fetch(request) {
     const data = await request.json();
     if (!/^[a-f0-9]{64}$/.test(data.ip || '') || (data.uid && !/^[a-f0-9]{64}$/.test(data.uid))) return new Response(null, {status: 400});
+    if (data.phase === 'erase') {
+      if (!data.uid) return new Response(null, {status: 400});
+      await this.state.storage.transaction(async tx => {
+        for (const [key] of await tx.list()) if (key.split(':').includes(data.uid)) await tx.delete(key);
+      });
+      return new Response(null, {status: 204});
+    }
     const now = Date.now(), day = Math.floor(now / 86400000), minute = Math.floor(now / 60000);
     const buckets = data.phase === 'auth'
       ? [[`auth:${minute}:${data.ip}`, LIMITS.authMinute]]
