@@ -15,12 +15,13 @@ internal class WordNumbering private constructor() {
     private val definitions = mutableMapOf<Pair<String, Int>, Level>()
     private val instances = mutableMapOf<String, String>()
     private val overrides = mutableMapOf<Pair<String, Int>, Int>()
+    private val levelOverrides = mutableMapOf<Pair<String, Int>, Level>()
     private val counters = mutableMapOf<Pair<String, Int>, Int>()
 
     fun prefix(id: String?, level: Int): String {
         if (id == null || id == "0") return ""
         val abstractId = instances[id] ?: throw IllegalArgumentException("Нет определения списка Word")
-        val definition = definitions[abstractId to level] ?: throw IllegalArgumentException("Нет уровня списка Word")
+        val definition = levelOverrides[id to level] ?: definitions[abstractId to level] ?: throw IllegalArgumentException("Нет уровня списка Word")
         val key = id to level
         val count = counters[key]?.plus(1) ?: overrides[key] ?: definition.start
         require(count in 1..1_000_000) { "Слишком длинная нумерация Word" }
@@ -32,7 +33,7 @@ internal class WordNumbering private constructor() {
         }
         return Regex("%([1-9])").replace(definition.pattern) { match ->
             val target = match.groupValues[1].toInt()-1
-            val item = definitions[abstractId to target] ?: definition
+            val item = levelOverrides[id to target] ?: definitions[abstractId to target] ?: definition
             val value = counters[id to target] ?: item.start
             when (item.format) {
                 "upperLetter" -> letters(value)
@@ -81,6 +82,7 @@ internal class WordNumbering private constructor() {
             }
             val handler = object: DefaultHandler() {
                 var abstractId: String?=null;var numId: String?=null;var level=0;var overrideLevel=0;var nodes=0
+                var targetLevel: Level? = null
                 override fun resolveEntity(publicId:String?,systemId:String?):InputSource = throw SAXException("Внешние XML-ресурсы отключены")
                 override fun startElement(uri:String?,localName:String?,qName:String?,attributes:Attributes) {
                     checkCancelled()
@@ -93,14 +95,20 @@ internal class WordNumbering private constructor() {
                         "abstractNumId" -> if(numId!=null) result.instances[numId!!]=value().orEmpty()
                         "lvlOverride" -> overrideLevel=value("ilvl")?.toIntOrNull() ?: 0
                         "startOverride" -> if(numId!=null) result.overrides[numId!! to overrideLevel]=value()?.toIntOrNull() ?: 1
-                        "lvl" -> { level=value("ilvl")?.toIntOrNull() ?: 0;require(level in 0..8);if(abstractId!=null) result.definitions[abstractId!! to level]=Level() }
-                        "numFmt" -> abstractId?.let { result.definitions[it to level]?.format=value().orEmpty() }
-                        "lvlText" -> abstractId?.let { result.definitions[it to level]?.pattern=value().orEmpty().also { p -> require(p.length<=128) } }
-                        "start" -> abstractId?.let { result.definitions[it to level]?.start=value()?.toIntOrNull() ?: 1 }
+                        "lvl" -> {
+                            level=value("ilvl")?.toIntOrNull() ?: 0;require(level in 0..8)
+                            targetLevel=Level()
+                            if(abstractId!=null) result.definitions[abstractId!! to level]=targetLevel!!
+                            else if(numId!=null) result.levelOverrides[numId!! to level]=targetLevel!!
+                        }
+                        "numFmt" -> targetLevel?.format=value().orEmpty()
+                        "lvlText" -> targetLevel?.pattern=value().orEmpty().also { p -> require(p.length<=128) }
+                        "start" -> targetLevel?.start=value()?.toIntOrNull() ?: 1
                     }
                 }
                 override fun endElement(uri:String?,localName:String?,qName:String?) {
                     when(localName?.takeIf { it.isNotEmpty() } ?: qName?.substringAfter(':')) {
+                        "lvl" -> targetLevel=null
                         "abstractNum" -> abstractId=null
                         "num" -> numId=null
                     }

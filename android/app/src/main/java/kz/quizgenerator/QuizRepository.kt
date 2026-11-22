@@ -115,7 +115,9 @@ class QuizRepository(private val context: Context) {
         var confident = true
         var preview = ""
         val parsed = when (format) {
-            "pdf" -> throw IllegalArgumentException("PDF пока не поддерживается. Выберите TXT, DOCX или JSON.")
+            "pdf" -> QuizTextParser.parseFrom(title, { report(null) }) { consume ->
+                PdfTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
+            }
             "docx" -> QuizTextParser.parseFrom(title) { consume ->
                 DocxTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
             }

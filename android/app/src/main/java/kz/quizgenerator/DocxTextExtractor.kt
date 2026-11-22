@@ -136,7 +136,8 @@ object DocxTextExtractor {
                     "numId" -> if (inParagraph) numId = attributes?.getValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val") ?: attributes?.getValue("w:val")
                     "ilvl" -> if (inParagraph) level = (attributes?.getValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val") ?: attributes?.getValue("w:val"))?.toIntOrNull() ?: 0
                     "t" -> inText = true
-                    "tab", "br" -> if (inParagraph) appendSpace()
+                    "tab" -> if (inParagraph) appendSpace()
+                    "br", "cr" -> if (inParagraph) appendSpace('\n')
                 }
             }
 
@@ -154,9 +155,9 @@ object DocxTextExtractor {
                 }
             }
 
-            private fun appendSpace() {
+            private fun appendSpace(separator: Char = ' ') {
                 require(paragraph.length < MAX_PARAGRAPH) { "Абзац слишком длинный. Разделите его в Word." }
-                paragraph.append(' ')
+                paragraph.append(separator)
             }
 
             private fun flush() {

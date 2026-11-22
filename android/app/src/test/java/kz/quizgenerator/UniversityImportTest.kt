@@ -37,7 +37,7 @@ class UniversityImportTest {
     }
 
     @Test fun importsEightHundredAndFifteenHundredInBothFormatsFromTxtAndWord() {
-        for (count in listOf(800, 1500)) for (tagged in listOf(false, true)) {
+        for (count in listOf(100, 500, 800, 1500)) for (tagged in listOf(false, true)) {
             val text = source(count, tagged)
             val direct = QuizTextParser.parse(text, "Университет").quiz
             val archive = docx(text)

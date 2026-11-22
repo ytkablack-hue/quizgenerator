@@ -34,4 +34,15 @@ class WordNumberingTest {
         val bad="""<!DOCTYPE w:numbering [<!ENTITY x SYSTEM "file:///private">]><w:numbering xmlns:w="$ns"/>"""
         assertThrows(IllegalArgumentException::class.java) { DocxTextExtractor.extract(archive("<x/>",bad)) }
     }
+    @Test fun fullLevelOverrideAndStartOverrideAreRespected() {
+        val changed=numbering().replace("<w:abstractNumId w:val=\"0\"/>", """<w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="3"/></w:lvlOverride><w:lvlOverride w:ilvl="1"><w:lvl w:ilvl="1"><w:start w:val="5"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2)"/></w:lvl></w:lvlOverride>""")
+        val doc="""<w:document xmlns:w="$ns"><w:body>"""+paragraph(1,0,"Вопрос?")+paragraph(1,1,"Да")+paragraph(1,1,"Нет")+"</w:body></w:document>"
+        val text=DocxTextExtractor.extract(archive(doc,changed))
+        assertEquals("3. Вопрос?\ne) Да\nf) Нет",text)
+    }
+    @Test fun manualWordBreaksKeepQuestionBoundaries() {
+        val doc="""<w:document xmlns:w="$ns"><w:body><w:p><w:r><w:t>1. Вопрос?</w:t><w:br/><w:t>А) Да</w:t><w:cr/><w:t>Б) Нет</w:t></w:r></w:p></w:body></w:document>"""
+        val text=DocxTextExtractor.extract(archive(doc,numbering()))
+        assertEquals(listOf("Да","Нет"),QuizTextParser.parse(text,"Word").quiz.questions.single().options)
+    }
 }

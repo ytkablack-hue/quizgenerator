@@ -26,6 +26,7 @@ object QuizTextParser {
         var explanation: String? = null
         var field = Field.QUESTION
         var lastNumericOption: Int? = null
+        var ambiguousWrap = false
     }
 
     private data class ParsedEntry(val number: Int?, val question: QuizQuestion, val labels: List<String>, val source: String)
@@ -63,6 +64,11 @@ object QuizTextParser {
             require(old.length + next.length < 65_536) {
                 "Вопрос, ответ или пояснение слишком длинные. Разделите документ."
             }
+            if (old.endsWith('\u00ad')) return old.dropLast(1) + next.trimStart()
+            if (old.endsWith('-') && next.firstOrNull()?.isLowerCase() == true) {
+                current?.ambiguousWrap = true
+                return old + next.trimStart()
+            }
             return if (old.isBlank()) next.trim() else "$old $next".trim()
         }
 
@@ -70,7 +76,7 @@ object QuizTextParser {
             if (lines.size !in 2..QuizLimits.OPTIONS) return false
             if (lines.any { it.length > 300 }) return false
             if (lines.count { it.length <= 140 } < 2) return false
-            return draft.text.trimEnd().endsWith("?") || lines.size >= 3
+            return ParserPatterns.looksLikeQuestionText(draft.text)
         }
 
         fun resolvePlain(asOptions: Boolean) {
@@ -83,6 +89,7 @@ object QuizTextParser {
                     draft.options.add(OptionDraft((index + 1).toString(), value, false))
                 }
                 warning("Вопрос ${draft.number ?: draft.ordinal}: варианты без обозначений распознаны предположительно — проверьте")
+                problem(draft.number ?: draft.ordinal, "Варианты без обозначений требуют ручной проверки", draft.raw.toString())
             } else {
                 draft.text = lines.fold(draft.text, ::append)
                 if (lines.size >= 2 && draft.options.isEmpty()) {
@@ -121,6 +128,10 @@ object QuizTextParser {
                 return
             }
 
+            if (draft.ambiguousWrap) {
+                warning("Вопрос ${draft.number ?: draft.ordinal}: перенос слова с дефисом требует проверки")
+                problem(draft.number ?: draft.ordinal, "Проверьте перенос слова с дефисом", draft.raw.toString())
+            }
             val labels = draft.options.map { ParserPatterns.canonicalLabel(it.label) }
             if (labels.distinct().size != labels.size) {
                 warning("Вопрос ${draft.number ?: draft.ordinal}: повторяются обозначения вариантов — проверьте ключ вручную")
@@ -280,6 +291,11 @@ object QuizTextParser {
             val number = ParserPatterns.numbered.matchEntire(line)
             if (number != null && shouldStartQuestion(number, draft, wasBlank, expectedNumber)) {
                 startQuestion(number.groupValues[1].toIntOrNull(), number.groupValues[3], false)
+                return@read
+            }
+
+            if (draft.field == Field.QUESTION && draft.plain.size >= 2 && wasBlank && ParserPatterns.looksLikeQuestionText(line)) {
+                startQuestion(null, line, false)
                 return@read
             }
 

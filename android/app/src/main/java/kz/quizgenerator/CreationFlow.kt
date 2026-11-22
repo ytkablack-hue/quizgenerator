@@ -61,8 +61,8 @@ internal fun CreationFlow(initial: CreationSource, onImport: () -> Unit, onAi: (
         if (source == CreationSource.DOCUMENT || source == CreationSource.PHOTO) item {
             StudyPanel {
                 if (source == CreationSource.DOCUMENT) {
-                    Text("Готовые вопросы TXT, Word, JSON открываются локально в общем редакторе.")
-                    Button(onClick = onImport, enabled = !busy) { Text("Открыть TXT, Word или JSON") }
+                    Text("Готовые вопросы TXT, Word, JSON и текст PDF (Android 15+) открываются локально в редакторе.")
+                    Button(onClick = onImport, enabled = !busy) { Text("Открыть локальный документ") }
                     HorizontalDivider()
                 }
                 Text(if (source == CreationSource.PHOTO) "Выберите фото с учебным текстом" else "PDF: распознать текст с ИИ")
@@ -88,7 +88,7 @@ internal fun CreationFlow(initial: CreationSource, onImport: () -> Unit, onAi: (
         if (source == CreationSource.TEXT) item {
             StudyField(title, { title = it.take(160) }, "Название / тема")
             StudyField(text, { text = it.take(12_000) }, "Проверьте и исправьте текст (до 12 000 символов)")
-            Text("Если в тексте уже есть вопросы и варианты, используйте локальный импорт. Для учебного текста — генерацию ИИ.")
+            Text("Распознанные готовые вопросы открываются локально в редакторе. Ответы без ключей остаются неизвестными. Генерация с ИИ отправляет текст на сервер.")
             OutlinedButton(enabled = !busy && text.isNotBlank(), onClick = {
                 run { val quiz = withContext(Dispatchers.Default) { QuizTextParser.parse(text,title.ifBlank { "Новый тест" }).quiz }; onDraft(quiz) }
             }) { Text("Открыть готовые вопросы в редакторе") }
