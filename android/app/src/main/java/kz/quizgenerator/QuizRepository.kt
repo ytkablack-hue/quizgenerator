@@ -21,6 +21,8 @@ internal data class ImportResult(
 internal data class ImportProgress(val document: DocumentDetails, val fraction: Float?)
 
 class QuizRepository(private val context: Context, private val dataRoot: File = context.filesDir) {
+    internal val materials = MaterialStore(dataRoot)
+    internal val workspaceRoot: File get()=dataRoot
     private val directory get() = File(dataRoot, "quiz_banks")
 
     fun listQuizzes(): List<Quiz> {
@@ -93,6 +95,37 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
             require(it.isNotEmpty()) { "Файл не содержит учебного текста" }
             require(it.length <= 12_000) { "Учебный материал длиннее 12 000 символов" }
         }
+    }
+
+    internal fun attachMaterial(uri: Uri,progress: (ImportProgress)->Unit): MaterialRecord = withDocument(uri) {input ->
+        val details=describe(uri);val type=format(input,details.name).let {if(it.isBlank())"txt" else it}
+        require(details.bytes==null || details.bytes<=MaterialStore.MAX_SOURCE) {"Документ больше 64 МБ"}
+        fun report(value: Float?)=progress(ImportProgress(details,value))
+        report(0f)
+        materials.import(details.name,type,input,{report(null)}) {file ->
+            val text=StringBuilder();var ocr=false
+            fun append(line: String) {report(null);require(text.length.toLong()+line.length+1<=MaterialStore.MAX_TEXT) {"В документе больше 8 млн символов"};text.append(line).append('\n')}
+            file.inputStream().buffered().use {source ->
+                when(type) {
+                    "docx" -> DocxTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append)
+                    "pdf" -> LocalOcr(context).use {engine -> ocr=PdfTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append) {page,p -> engine.page(page,p)}}
+                    "image" -> LocalOcr(context).use {engine -> ocr=true;append(engine.image(source,context.cacheDir,file.length(),::report))}
+                    else -> {
+                        val decoded=TextDecoder.decode(source.readBytesBounded(MaterialStore.MAX_TEXT*4))
+                        append(decoded.text)
+                        if(!decoded.confident)return@import MaterialText(text.toString(),"Кодировка "+decoded.charset+" определена предположительно. Проверьте текст перед генерацией")
+                    }
+                }
+            }
+            report(1f)
+            MaterialText(text.toString(),if(ocr)"Распознано локальным OCR. Проверьте формулировки и ключи" else "")
+        }
+    }
+
+    internal fun questionsFromMaterial(id: String): ParsedQuiz {
+        val record=materials.load(id);val text=materials.text(id)
+        val parsed=if(record.format=="json")ParsedQuiz(QuizJson.parse(text),emptyList()) else QuizTextParser.parse(text,record.name.substringBeforeLast('.'))
+        return if(record.notice.contains("OCR"))parsed.copy(quiz=OcrReview.review(parsed.quiz,true)) else parsed
     }
 
     internal fun previewImport(

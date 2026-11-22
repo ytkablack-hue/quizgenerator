@@ -8,13 +8,15 @@ import org.json.JSONObject
 
 internal object LibraryBackup {
     fun write(root: File, output: OutputStream, checkCancelled: () -> Unit = {}) {
-        val files=listOf(File(root,"study.json"),File(root,"active-attempt.json"))+
-            File(root,"quiz_banks").listFiles { f -> f.isFile && f.extension=="json" }.orEmpty().sortedBy { it.name }
+        val files=listOf(File(root,"study.json"),File(root,"active-attempt.json"),File(root,"sets.json"),File(root,"ai-draft.json"))+
+            File(root,"quiz_banks").listFiles { f -> f.isFile && f.extension=="json" }.orEmpty().sortedBy { it.name } +
+            File(root,"materials").listFiles().orEmpty().filter {it.isDirectory && runCatching {java.util.UUID.fromString(it.name).toString()==it.name}.getOrDefault(false)}
+                .flatMap {dir -> listOf("meta.json","document.txt","source.bin").map {File(dir,it)} }
         var total=0L
         ZipOutputStream(output).use { zip ->
             for(file in files.filter { it.exists() }) {
                 checkCancelled()
-                val relative=if(file.parentFile?.canonicalFile==File(root,"quiz_banks").canonicalFile)"quiz_banks/"+file.name else file.name
+                val relative=file.relativeTo(root).invariantSeparatorsPath
                 require(file.canonicalPath==File(root.canonicalFile,relative).normalize().path) { "Небезопасный путь библиотеки" }
                 require(file.length()<=128L*1024*1024) { "Файл слишком большой для резервной копии" }
                 total+=file.length();require(total<=512L*1024*1024) { "Библиотека слишком большая. Сохраните тесты по частям" }
