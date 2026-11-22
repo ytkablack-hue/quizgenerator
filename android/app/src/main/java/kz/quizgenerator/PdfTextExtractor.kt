@@ -1,6 +1,6 @@
 package kz.quizgenerator
 
-import android.annotation.TargetApi
+import androidx.annotation.RequiresApi
 import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -30,7 +30,7 @@ internal object PdfTextExtractor {
         } finally { file.delete() }
     }
 
-    @TargetApi(35)
+    @RequiresApi(35)
     private fun readPages(file: File, progress: (Float?) -> Unit, consume: (String) -> Unit) {
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             PdfRenderer(fd).use { renderer ->

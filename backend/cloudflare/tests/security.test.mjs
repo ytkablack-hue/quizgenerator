@@ -24,6 +24,12 @@ test('JWKS redirects fail closed using the Workers-compatible manual policy',asy
  }}),/auth unavailable/);
  assert.equal(calls,1);
 });
+test('verified Google Firebase token retains project and email checks',async()=>{
+ const google={...claims,firebase:{sign_in_provider:'google.com'}};
+ assert.equal((await verifyToken(await token(google),project,opts)).sub,'user-a');
+ await assert.rejects(verifyToken(await token({...google,email_verified:false}),project,opts));
+ await assert.rejects(verifyToken(await token({...google,aud:'other'}),project,opts));
+});
 test('signed Firebase ID token accepts verified user and exact project',async()=>{
  assert.equal((await verifyToken(await token(),project,opts)).sub,'user-a');
 });

@@ -19,7 +19,7 @@ export async function verifyToken(token, project, {fetcher = fetch, now = Date.n
       !Number.isInteger(claims.exp) || claims.exp <= time || !Number.isInteger(claims.iat) || claims.iat > time ||
       !Number.isInteger(claims.auth_time) || claims.auth_time > time || claims.auth_time < 0 ||
       claims.exp <= claims.iat || claims.exp - claims.iat > 3700 ||
-      claims.firebase?.sign_in_provider !== 'password') throw Error('invalid token');
+      !['password', 'google.com'].includes(claims.firebase?.sign_in_provider)) throw Error('invalid token');
   if (!keys) {
     if (!cached || cached.expires <= now) {
       const response = await fetcher(JWKS, {signal: AbortSignal.timeout(8000), redirect: 'manual'});

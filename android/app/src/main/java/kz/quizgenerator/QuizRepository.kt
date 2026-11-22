@@ -20,8 +20,8 @@ internal data class ImportResult(
 )
 internal data class ImportProgress(val document: DocumentDetails, val fraction: Float?)
 
-class QuizRepository(private val context: Context) {
-    private val directory get() = File(context.filesDir, "quiz_banks")
+class QuizRepository(private val context: Context, private val dataRoot: File = context.filesDir) {
+    private val directory get() = File(dataRoot, "quiz_banks")
 
     fun listQuizzes(): List<Quiz> {
         val demo = context.assets.open("demo_quiz.json").bufferedReader().use { QuizJson.parse(it.readText()) }

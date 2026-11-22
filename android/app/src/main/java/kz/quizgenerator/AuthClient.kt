@@ -20,98 +20,120 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal data class Account(val uid: String, val email: String, val verified: Boolean, val name: String)
+internal data class Account(val uid: String, val email: String, val verified: Boolean, val name: String,
+    val providers: Set<String> = setOf("password"))
 internal val LocalAuth = staticCompositionLocalOf<AuthClient> { error("Auth not initialized") }
 
-/** Firebase owns passwords. Only encrypted refresh/ID tokens are retained locally. */
-internal class AuthClient(context: Context) {
-    private val vault = SessionVault(context.applicationContext)
-    private val mutex = Mutex()
-    private var config: JSONObject? = null
-    private var session: JSONObject? = vault.load()
+/** Only Firebase sessions are persisted. Google credentials and passwords never enter the vault. */
+internal class AuthClient(private val vault: AuthSessionStore, private val gateway: AuthGateway = FirebaseRestGateway(), private val clearCredentials: suspend () -> Unit = {}) {
+    constructor(context: Context): this(SessionVault(context.applicationContext),FirebaseRestGateway(),{GoogleCredentials.clear(context.applicationContext)})
+    private val mutex=Mutex()
+    private var config: JSONObject?=null
+    private var session: JSONObject?=vault.load()
     var account by mutableStateOf(session?.account())
         private set
 
-    private fun JSONObject.account() = Account(getString("localId"), optString("email"), optBoolean("emailVerified"), optString("displayName"))
-    private fun save(value: JSONObject?) {
-        vault.save(value)
-        session = value
-        account = value?.account()
+    private fun JSONObject.account(): Account {
+        val providers=optJSONArray("providers")
+        return Account(getString("localId"),optString("email"),optBoolean("emailVerified"),optString("displayName"),
+            if(providers==null)setOf("password") else (0 until providers.length()).map { providers.getString(it) }.toSet())
     }
-    private fun apiKey(): String {
-        if (config == null) config = NetworkJson.request(ProductionConfig.SERVER + "/api/v1/auth/config")
-        return config!!.getString("apiKey").also { require(it.isNotBlank()) { "Вход временно недоступен" } }
+    private fun save(value: JSONObject?) { vault.save(value);session=value;account=value?.account() }
+    private fun configuration(): JSONObject {
+        if(config==null)config=gateway.config()
+        return config!!
     }
-    private fun firebase(action: String, body: JSONObject) = NetworkJson.request(
-        "https://identitytoolkit.googleapis.com/v1/accounts:$action?key=" + apiKey(), body)
-
-    suspend fun signIn(email: String, password: String, register: Boolean) = withContext(Dispatchers.IO) {
+    private fun apiKey()=configuration().getString("apiKey").also { require(it.isNotBlank()) { "Вход временно недоступен" } }
+    private fun firebase(action: String, body: JSONObject)=gateway.firebase(action,apiKey(),body)
+    suspend fun googleClientId(): String=withContext(Dispatchers.IO) {
+        mutex.withLock { configuration().optString("googleClientId").takeIf { it.endsWith(".apps.googleusercontent.com") }
+            ?: error("Вход с Google временно недоступен. Используйте электронную почту") }
+    }
+    private fun accept(value: JSONObject, expectedUid: String? = null, fallbackProvider: String = "password") {
+        val uid=value.getString("localId")
+        require(expectedUid==null || expectedUid==uid) { "Выберите Google-аккаунт этого профиля. Другой аккаунт не был изменён" }
+        val user=firebase("lookup",JSONObject().put("idToken",value.getString("idToken"))).getJSONArray("users").getJSONObject(0)
+        require(user.getString("localId")==uid) { "Не удалось подтвердить аккаунт" }
+        val infos=user.optJSONArray("providerUserInfo")
+        val providers=org.json.JSONArray()
+        if(infos==null || infos.length()==0)providers.put(fallbackProvider)
+        else for(i in 0 until infos.length())providers.put(infos.getJSONObject(i).getString("providerId"))
+        save(JSONObject().put("localId",uid).put("email",user.optString("email",value.optString("email")))
+            .put("idToken",value.getString("idToken")).put("refreshToken",value.getString("refreshToken"))
+            .put("expiresAt",System.currentTimeMillis()+value.getString("expiresIn").toLong()*1000)
+            .put("emailVerified",user.optBoolean("emailVerified")).put("displayName",user.optString("displayName"))
+            .put("providers",providers))
+    }
+    suspend fun signIn(email: String,password: String,register: Boolean,expectedUid: String?=null)=withContext(Dispatchers.IO) {
         mutex.withLock {
-            require(email.isNotBlank() && password.length >= 8) { "Введите почту и пароль от 8 символов" }
-            val value = firebase(if (register) "signUp" else "signInWithPassword",
-                JSONObject().put("email", email.trim()).put("password", password).put("returnSecureToken", true))
-            value.put("expiresAt", System.currentTimeMillis() + value.getString("expiresIn").toLong() * 1000)
-            val user = firebase("lookup", JSONObject().put("idToken", value.getString("idToken"))).getJSONArray("users").getJSONObject(0)
-            value.put("emailVerified", user.optBoolean("emailVerified")).put("displayName", user.optString("displayName"))
-            save(value)
-            if (register) firebase("sendOobCode", JSONObject().put("requestType", "VERIFY_EMAIL").put("idToken", value.getString("idToken")))
+            val address=AuthFields.email(email)
+            require(password.length in 8..128) { "Введите пароль от 8 символов" }
+            val value=firebase(if(register)"signUp" else "signInWithPassword",JSONObject().put("email",address).put("password",password).put("returnSecureToken",true))
+            accept(value,expectedUid)
+            if(register)firebase("sendOobCode",JSONObject().put("requestType","VERIFY_EMAIL").put("idToken",value.getString("idToken")))
         }
     }
-    suspend fun token(force: Boolean = false): String = withContext(Dispatchers.IO) {
+    suspend fun signInGoogle(googleIdToken: String, expectedUid: String? = null, link: Boolean = false)=withContext(Dispatchers.IO) {
+        val previous=if(link)token() else null
         mutex.withLock {
-            val old = session ?: error("Войдите в аккаунт для использования ИИ")
-            if (!force && old.optLong("expiresAt") > System.currentTimeMillis() + 60_000) return@withLock old.getString("idToken")
-            val connection = java.net.URL("https://securetoken.googleapis.com/v1/token?key=" + apiKey()).openConnection() as java.net.HttpURLConnection
+            require(googleIdToken.isNotBlank() && googleIdToken.length<=16_384) { "Не удалось получить вход Google" }
+            require(!link || (expectedUid!=null && account?.uid==expectedUid)) { "Войдите снова перед связыванием" }
+            val body=JSONObject().put("postBody","id_token="+java.net.URLEncoder.encode(googleIdToken,"UTF-8")+"&providerId=google.com")
+                .put("requestUri","https://"+configuration().getString("projectId")+".firebaseapp.com")
+                .put("returnSecureToken",true).put("returnIdpCredential",true)
+            previous?.let { body.put("idToken",it) }
+            val value=firebase("signInWithIdp",body)
+            accept(value,expectedUid,"google.com")
+        }
+    }
+    suspend fun token(force: Boolean=false): String=withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val old=session ?: error("Войдите в аккаунт для использования ИИ")
+            if(!force && old.optLong("expiresAt")>System.currentTimeMillis()+60_000)return@withLock old.getString("idToken")
             try {
-                connection.connectTimeout = 8_000; connection.readTimeout = 15_000; connection.instanceFollowRedirects = false
-                connection.requestMethod = "POST"; connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                val encoded = ("grant_type=refresh_token&refresh_token=" + java.net.URLEncoder.encode(old.getString("refreshToken"), "UTF-8")).toByteArray()
-                connection.outputStream.use { it.write(encoded) }
-                if (connection.responseCode !in 200..299) {
-                    if (connection.responseCode in setOf(400, 401, 403)) save(null)
-                    error("Не удалось обновить вход. Попробуйте войти снова")
-                }
-                val value = JSONObject(String(connection.inputStream.use { it.readBytesBounded(65_536) }, Charsets.UTF_8))
-                val next = JSONObject(old.toString()).put("idToken", value.getString("id_token"))
-                    .put("refreshToken", value.getString("refresh_token"))
-                    .put("expiresAt", System.currentTimeMillis() + value.getString("expires_in").toLong() * 1000)
-                val user = firebase("lookup", JSONObject().put("idToken", next.getString("idToken"))).getJSONArray("users").getJSONObject(0)
-                next.put("emailVerified", user.optBoolean("emailVerified")).put("displayName", user.optString("displayName"))
-                save(next)
-                next.getString("idToken")
-            } finally { connection.disconnect() }
+                val value=gateway.refresh(apiKey(),old.getString("refreshToken"))
+                val next=JSONObject(old.toString()).put("idToken",value.getString("id_token")).put("refreshToken",value.getString("refresh_token"))
+                    .put("expiresAt",System.currentTimeMillis()+value.getString("expires_in").toLong()*1000)
+                val user=firebase("lookup",JSONObject().put("idToken",next.getString("idToken"))).getJSONArray("users").getJSONObject(0)
+                require(user.getString("localId")==old.getString("localId")) { "Не удалось подтвердить аккаунт" }
+                next.put("emailVerified",user.optBoolean("emailVerified")).put("displayName",user.optString("displayName"))
+                save(next);next.getString("idToken")
+            } catch(e: ExpiredAuth) { save(null);throw e }
         }
     }
-    suspend fun sendVerification() = withContext(Dispatchers.IO) {
-        firebase("sendOobCode", JSONObject().put("requestType", "VERIFY_EMAIL").put("idToken", token()))
-        Unit
-    }
-    suspend fun reset(email: String) = withContext(Dispatchers.IO) {
-        require(email.isNotBlank()) { "Введите почту" }
-        // Do not disclose whether an email is registered.
-        firebase("sendOobCode", JSONObject().put("requestType", "PASSWORD_RESET").put("email", email.trim()))
-        Unit
-    }
-    suspend fun rename(name: String) = withContext(Dispatchers.IO) {
+    suspend fun sendVerification()=withContext(Dispatchers.IO) { firebase("sendOobCode",JSONObject().put("requestType","VERIFY_EMAIL").put("idToken",token()));Unit }
+    suspend fun reset(email: String)=withContext(Dispatchers.IO) { firebase("sendOobCode",JSONObject().put("requestType","PASSWORD_RESET").put("email",AuthFields.email(email)));Unit }
+    suspend fun rename(name: String)=withContext(Dispatchers.IO) {
         require(name.trim().length in 1..80) { "Имя должно содержать 1–80 символов" }
-        firebase("update", JSONObject().put("idToken", token()).put("displayName", name.trim()).put("returnSecureToken", false))
-        mutex.withLock { session?.let { save(JSONObject(it.toString()).put("displayName", name.trim())) } }
-    }
-    suspend fun signOut() = withContext(Dispatchers.IO) { mutex.withLock { save(null) } }
-    suspend fun deleteAccount(password: String) {
-        val email = account?.email ?: error("Войдите снова")
-        signIn(email, password, false) // Firebase requires recent authentication.
-        withContext(Dispatchers.IO) {
-            val idToken = token()
-            // Worker deletes the Firebase account before removing user-specific quota data.
-            NetworkJson.request(ProductionConfig.SERVER + "/api/v1/account", bearer = idToken, method = "DELETE")
+        val idToken=token()
+        mutex.withLock {
+            firebase("update",JSONObject().put("idToken",idToken).put("displayName",name.trim()).put("returnSecureToken",false))
+            session?.let { save(JSONObject(it.toString()).put("displayName",name.trim())) }
         }
-        signOut()
+    }
+    suspend fun signOut()=withContext(Dispatchers.IO) {
+        mutex.withLock { save(null) }
+        withContext(kotlinx.coroutines.NonCancellable) { kotlinx.coroutines.withTimeoutOrNull(3000) { clearCredentials() } }
+    }
+    suspend fun deleteAccount(password: String) {
+        val old=account ?: error("Войдите снова")
+        signIn(old.email,password,false,old.uid)
+        require(account?.uid==old.uid) { "Аккаунт изменился. Повторите вход" }
+        deleteCurrent(old.uid)
+    }
+    suspend fun deleteWithGoogle(googleIdToken: String) {
+        val uid=account?.uid ?: error("Войдите снова")
+        signInGoogle(googleIdToken,uid)
+        deleteCurrent(uid)
+    }
+    private suspend fun deleteCurrent(uid: String)=withContext(Dispatchers.IO) {
+        val idToken=token()
+        mutex.withLock { require(account?.uid==uid) { "Аккаунт изменился" };gateway.delete(idToken);save(null) }
+        withContext(kotlinx.coroutines.NonCancellable) { kotlinx.coroutines.withTimeoutOrNull(3000) { clearCredentials() } }
     }
 }
 
-private class SessionVault(context: Context) {
+private class SessionVault(context: Context): AuthSessionStore {
     private val file = File(context.noBackupFilesDir, "auth-session.enc")
     private val alias = "testhelper.auth.session.v1"
     private fun key(): SecretKey {
@@ -122,18 +144,23 @@ private class SessionVault(context: Context) {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    fun load(): JSONObject? = runCatching {
+    override fun load(): JSONObject? = runCatching {
         if (!file.exists()) return null
         val envelope = JSONObject(file.readText())
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(envelope.getString("iv"), Base64.NO_WRAP)))
         JSONObject(String(cipher.doFinal(Base64.decode(envelope.getString("data"), Base64.NO_WRAP)), Charsets.UTF_8))
     }.getOrNull() // A lost key signs out; local tests are never touched.
-    fun save(value: JSONObject?) {
+    override fun save(value: JSONObject?) {
         if (value == null) { check(!file.exists() || file.delete()) { "Не удалось завершить сеанс" }; return }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         atomicWrite(file, JSONObject().put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .put("data", Base64.encodeToString(cipher.doFinal(value.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)).toString())
     }
+}
+
+internal object AuthSessions {
+    @Volatile private var instance: AuthClient?=null
+    fun get(context: Context): AuthClient=synchronized(this) { instance ?: AuthClient(context.applicationContext).also { instance=it } }
 }

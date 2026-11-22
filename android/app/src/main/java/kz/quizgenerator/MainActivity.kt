@@ -27,26 +27,90 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val auth = AuthClient(applicationContext)
-        val repository = QuizRepository(applicationContext)
-        val editor = ViewModelProvider(this)[EditorModel::class.java]
+        val auth=AuthSessions.get(applicationContext)
         setContent {
-            val store = remember { StudyStore(File(filesDir, "study.json")) }
-            val activeStore = remember { ActiveAttemptStore(File(filesDir, "active-attempt.json")) }
-            val bootCount = android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
-            val initial = remember { runCatching { store.load().also(store::save) } }
-            var study by remember { mutableStateOf(initial.getOrDefault(StudyData())) }
-            var failure by remember { mutableStateOf(if (initial.isFailure) "Не удалось прочитать данные подготовки" else null) }
-            SoftStudyTheme(study.settings.theme) {
-              CompositionLocalProvider(LocalAuth provides auth) {
-                TestHelperApp(repository, editor, study, activeStore, bootCount, { updated ->
-                    runCatching {
-                        check(initial.isSuccess) { "Файл подготовки не читается" }
-                        store.save(updated)
-                    }.onSuccess { study = updated; failure = null }
-                        .onFailure { failure = "Не удалось сохранить данные подготовки" }.isSuccess
-                }, failure)
-              }
+            CompositionLocalProvider(LocalAuth provides auth) {
+                val account=auth.account
+                if(account==null)SoftStudyTheme("system") { AuthEntryScreen() }
+                else key(account.uid) {
+                    val editor=remember(account.uid) { ViewModelProvider(this@MainActivity).get("editor:"+account.uid,EditorModel::class.java) }
+                    DisposableEffect(editor) { onDispose { editor.cancel() } }
+                    AccountWorkspace(this@MainActivity,auth,account,editor)
+                }
+            }
+        }
+    }
+}
+
+private data class LibraryBoot(val study: Result<StudyData>,val quizzes: List<Quiz>,val active: Result<ActiveAttempt?>)
+
+@Composable
+private fun AccountWorkspace(activity: ComponentActivity,auth: AuthClient,account: Account,editor: EditorModel) {
+    val storage=remember { AccountStorage(activity.filesDir) }
+    var access by remember { mutableStateOf<AccountStorage.Access?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    var claiming by remember { mutableStateOf(false) }
+    val scope=rememberCoroutineScope()
+    LaunchedEffect(account.uid,retry) {
+        error=null
+        try { access=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { storage.access(account.uid) } }
+        catch(e: kotlinx.coroutines.CancellationException) { throw e }
+        catch(_: Exception) { error="Не удалось открыть библиотеку. Исходные файлы не изменены" }
+    }
+    when(val current=access) {
+        AccountStorage.Access.NeedsLegacyOwnership -> SoftStudyTheme("system") {
+            StudyColumn("Локальная библиотека",{}) {
+                Text("На устройстве есть тесты из прежней версии. Подтвердите, что это ваша библиотека: она будет закреплена за текущим аккаунтом без перемещения и удаления файлов. Другие аккаунты получат отдельную библиотеку.")
+                Text(account.email)
+                Button(enabled=!claiming,onClick={claiming=true;scope.launch {
+                    try { access=AccountStorage.Access.Ready(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { storage.claimLegacy(account.uid) }) }
+                    catch(e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch(e: Exception) { error=e.message ?: "Файлы не изменены" }
+                    finally { claiming=false }
+                }}) { Text("Это мои тесты — продолжить") }
+                TextButton(onClick={scope.launch { auth.signOut() }}) { Text("Выйти и выбрать другой аккаунт") }
+                error?.let { StudyError(it) }
+            }
+        }
+        is AccountStorage.Access.Ready -> key(current.root.absolutePath) {
+            val repository=remember { QuizRepository(activity.applicationContext,current.root) }
+            val store=remember { StudyStore(File(current.root,"study.json")) }
+            val activeStore=remember { ActiveAttemptStore(File(current.root,"active-attempt.json")) }
+            var boot by remember { mutableStateOf<LibraryBoot?>(null) }
+            LaunchedEffect(retry) {
+                try { boot=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    LibraryBoot(runCatching { store.load() },repository.listQuizzes(),runCatching { activeStore.load() })
+                } } catch(e: kotlinx.coroutines.CancellationException) { throw e }
+                catch(_: Exception) { error="Не удалось прочитать библиотеку. Файлы не изменены" }
+            }
+            val export=rememberLibraryExport(current.root)
+            val initial=boot
+            if(initial!=null) {
+                var study by remember { mutableStateOf(initial.study.getOrDefault(StudyData())) }
+                var failure by remember { mutableStateOf(if(initial.study.isFailure)"Не удалось прочитать данные подготовки. Файл не перезаписан" else null) }
+                val bootCount=android.provider.Settings.Global.getInt(activity.contentResolver,android.provider.Settings.Global.BOOT_COUNT,-1)
+                SoftStudyTheme(study.settings.theme) {
+                    TestHelperApp(repository,editor,study,activeStore,bootCount,{updated ->
+                        runCatching { check(initial.study.isSuccess) { "Файл подготовки не читается" };store.save(updated) }
+                            .onSuccess { study=updated;failure=null }.onFailure { failure="Не удалось сохранить данные подготовки" }.isSuccess
+                    },failure,initial.quizzes,initial.active,export)
+                }
+            } else SoftStudyTheme("system") {
+                StudyColumn("Библиотека",{}) {
+                    if(error==null)StudyLoading("Открываем локальную библиотеку…") else {
+                        StudyError(error!!);Button(onClick={error=null;retry++}) { Text("Повторить") }
+                        TextButton(onClick={scope.launch { auth.signOut() }}) { Text("Выйти") }
+                    }
+                }
+            }
+        }
+        null -> SoftStudyTheme("system") {
+            StudyColumn("TestHelper",{}) {
+                if(error==null)StudyLoading("Открываем аккаунт…") else {
+                    StudyError(error!!);Button(onClick={retry++}) { Text("Повторить") }
+                    TextButton(onClick={scope.launch { auth.signOut() }}) { Text("Выйти") }
+                }
             }
         }
     }
@@ -62,9 +126,9 @@ private enum class Confirmation { DISCARD_DRAFT, LEAVE_QUIZ, FINISH_QUIZ }
 
 @Composable
 private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study: StudyData,
-                          activeStore: ActiveAttemptStore, bootCount: Int, update: (StudyData) -> Boolean, storageError: String?) {
-    var quizzes by remember { mutableStateOf(repository.listQuizzes()) }
-    val restoreResult = remember { runCatching { activeStore.load() } }
+                          activeStore: ActiveAttemptStore, bootCount: Int, update: (StudyData) -> Boolean, storageError: String?, initialQuizzes: List<Quiz>, restoredAttempt: Result<ActiveAttempt?>, onExportData: () -> Unit) {
+    var quizzes by remember { mutableStateOf(initialQuizzes) }
+    val restoreResult = remember { restoredAttempt }
     val restored = restoreResult.getOrNull()
     val screenStates = rememberSaveableStateHolder()
     var sessionQuiz by remember { mutableStateOf(restored?.quiz) }
@@ -288,6 +352,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 14.dp, vertical = 8.dp)) {
                 storageError?.let { StudyError(it); Spacer(Modifier.height(6.dp)) }
+                if (LocalAuth.current.account?.verified == false && page != Page.ACCOUNT) TextButton(onClick={accountReturn=page;page=Page.ACCOUNT}) { Text("Подтвердите почту для доступа к ИИ") }
                 if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")
                 screenStates.SaveableStateProvider(page.name) {
                 when (page) {
@@ -315,7 +380,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         onCards = { page = Page.CARDS }, onAi = { aiAttemptId = it?.id; aiTask = if (it == null) "cards" else "review"; page = Page.AI }, onRepeat = ::openQuiz)
                     Page.CARDS -> CoinFlashcardsScreen(study.cards, { update(study.copy(cards = it)) }, { page = Page.LIBRARY })
                     Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::goBack, { accountReturn = page; page = Page.ACCOUNT })
-                    Page.ACCOUNT -> AccountScreen(::goBack)
+                    Page.ACCOUNT -> AccountScreen(::goBack,quizzes.filter(repository::canDelete),study,{settingsReturn=Page.ACCOUNT;page=Page.SETTINGS},onExportData)
                     Page.AI -> AiScreen(study.settings, study.attempts.firstOrNull { it.id == aiAttemptId } ?: study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
                         repository::readStudyMaterial, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
                         saveCards = { update(study.copy(cards = study.cards + it)) }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask)

@@ -41,7 +41,7 @@ export default {
     if(request.method==='GET'&&path==='/api/v1/auth/config'){
       if(!env.FIREBASE_PROJECT_ID||!env.FIREBASE_WEB_API_KEY)return fail('Авторизация временно недоступна.',503);
       // Firebase Web API key identifies the public client; it is not an Admin/service-account key.
-      return respond({projectId:env.FIREBASE_PROJECT_ID,apiKey:env.FIREBASE_WEB_API_KEY});
+      return respond({projectId:env.FIREBASE_PROJECT_ID,apiKey:env.FIREBASE_WEB_API_KEY,googleClientId:env.FIREBASE_GOOGLE_WEB_CLIENT_ID||null});
     }
     if(request.method==='GET'&&path==='/delete-account')return deletionPage();
     const deleting=path==='/api/v1/account'&&request.method==='DELETE';

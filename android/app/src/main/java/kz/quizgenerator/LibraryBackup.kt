@@ -1,0 +1,35 @@
+package kz.quizgenerator
+
+import java.io.File
+import java.io.OutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import org.json.JSONObject
+
+internal object LibraryBackup {
+    fun write(root: File, output: OutputStream, checkCancelled: () -> Unit = {}) {
+        val files=listOf(File(root,"study.json"),File(root,"active-attempt.json"))+
+            File(root,"quiz_banks").listFiles { f -> f.isFile && f.extension=="json" }.orEmpty().sortedBy { it.name }
+        var total=0L
+        ZipOutputStream(output).use { zip ->
+            for(file in files.filter { it.exists() }) {
+                checkCancelled()
+                val relative=if(file.parentFile?.canonicalFile==File(root,"quiz_banks").canonicalFile)"quiz_banks/"+file.name else file.name
+                require(file.canonicalPath==File(root.canonicalFile,relative).normalize().path) { "Небезопасный путь библиотеки" }
+                require(file.length()<=128L*1024*1024) { "Файл слишком большой для резервной копии" }
+                total+=file.length();require(total<=512L*1024*1024) { "Библиотека слишком большая. Сохраните тесты по частям" }
+                zip.putNextEntry(ZipEntry(relative))
+                if(relative=="study.json") {
+                    require(file.length()<=16L*1024*1024) { "История больше 16 МБ. Сохраните тесты отдельно" }
+                    val value=JSONObject(file.readText(Charsets.UTF_8))
+                    value.optJSONObject("settings")?.let { it.remove("serverPassword");it.remove("serverUrl");it.remove("serverToken") }
+                    zip.write(value.toString().toByteArray(Charsets.UTF_8))
+                } else file.inputStream().buffered().use { input ->
+                    val bytes=ByteArray(32*1024)
+                    while(true) { checkCancelled();val n=input.read(bytes);if(n<0)break;zip.write(bytes,0,n) }
+                }
+                zip.closeEntry()
+            }
+        }
+    }
+}
