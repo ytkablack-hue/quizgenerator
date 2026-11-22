@@ -20,17 +20,23 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
 @OptIn(ExperimentalMaterial3Api::class,ExperimentalLayoutApi::class)
 @Composable internal fun StudySetWorkspace(id: String,repository: QuizRepository,quizzes: List<Quiz>,study: StudyData,
     update: (StudyData)->Boolean,onBack: ()->Unit,onQuiz: (Quiz)->Unit,onEdit: (Quiz?)->Unit,onAi: (String)->Unit,
-    onCardsFromQuiz: (Quiz)->Unit,onImportQuiz: (Quiz)->Unit,onOptions: ()->Unit,onExport: (StudySet)->Unit,onOwnText: ()->Unit) {
+    onCardsFromQuiz: (Quiz)->Unit,onImportQuiz: (Quiz)->Unit,onOptions: ()->Unit,onExport: (StudySet)->Unit,onOwnText: ()->Unit,onStoredQuiz: (Quiz)->Unit) {
     val auth=LocalAuth.current;val context=LocalContext.current;val scope=rememberCoroutineScope()
     val model=remember(auth.account?.uid) {ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java)}
     LaunchedEffect(repository){model.bind(repository)}
     var revision by remember {mutableIntStateOf(0)};var tab by rememberSaveable(id) {mutableStateOf(SetTab.MATERIAL)}
+    var workflows by rememberSaveable {mutableStateOf(false)}
+    var workKind by rememberSaveable {mutableStateOf<BatchKind?>(null)}
+    var answerBankId by rememberSaveable {mutableStateOf<String?>(null)}
+    var lectureId by rememberSaveable {mutableStateOf<String?>(null)}
+    val lectureStore=remember(repository){LectureStore(repository.workspaceRoot)}
     var error by remember {mutableStateOf<String?>(null)};var viewer by rememberSaveable {mutableStateOf(false)}
     var notes by rememberSaveable(id) {mutableStateOf("")};var notesLoaded by rememberSaveable(id) {mutableStateOf(false)}
     var leaving by remember {mutableStateOf(false)};var saving by remember {mutableStateOf(false)}
     val state by produceState<Result<StudySet>?>(null,id,revision,model.records,model.setRevision) {
         value=withContext(Dispatchers.IO) {runCatching {repository.sets.list().firstOrNull {it.id==id && !it.archived} ?: error("Набор недоступен или находится в корзине")}}
     }
+    val lectureRecords by produceState<Result<List<Lecture>>?>(null,id,revision){value=withContext(Dispatchers.IO){runCatching {lectureStore.list(id)}}}
     val set=state?.getOrNull()
     LaunchedEffect(set?.id,model.ready,model.records) {
         if(set!=null && model.ready) {val next=AiGeneration.initialDocument(model.draft.inputMode,model.draft.sourceId,set.materialIds);if(next!=model.draft.sourceId)model.select(next)}
@@ -49,6 +55,8 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri->if(uri!=null)model.attach(uri,id)}
     val selected=model.records.firstOrNull {it.id==model.draft.sourceId && it.id in set?.materialIds.orEmpty()}
     if(viewer && selected!=null && model.text.isNotEmpty())MaterialViewer(selected,model.text,model.draft.previewPage,{model.update(model.draft.copy(previewPage=it))},{viewer=false},sourceFile=repository.materials.source(selected.id))
+    if(lectureId!=null){LectureScreen(lectureStore,lectureId!!,{lectureId=null;revision++},repository.materials){lecture,task->model.fromLecture(repository,lecture){onAi(task)}};return}
+    if(workflows){StudyWorkflows(repository,id,quizzes.filter {it.id in set?.quizIds.orEmpty()},workKind,answerBankId,{workflows=false;revision++},onStoredQuiz,onQuiz){lecture,task->model.fromLecture(repository,lecture){onAi(task)}};return}
     Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             TextButton(onClick=::back,modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)){Text("‹")}
@@ -66,6 +74,18 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when(tab) {
                     SetTab.MATERIAL -> ScreenList {
+                        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Button(onClick={workKind=BatchKind.LECTURE;answerBankId=null;workflows=true}){Text("Создать лекцию с ИИ")}
+                            OutlinedButton(onClick={workKind=null;answerBankId=null;workflows=true}){Text("Задания и результаты")}
+                        }}
+                        item {Text("Учебные лекции",style=MaterialTheme.typography.titleMedium)}
+                        lectureRecords?.exceptionOrNull()?.let {item {StudyError("Не удалось прочитать лекции. Файлы сохранены")}}
+                        items(lectureRecords?.getOrNull().orEmpty(),key={"lecture-"+it.id}) {lecture->StudyPanel(onClick={lectureId=lecture.id}) {
+                            Text(lecture.title,style=MaterialTheme.typography.titleMedium);Text(if(lecture.complete)"Лекция · доступна офлайн" else "Лекция · частичный материал")
+                            TextButton(onClick={lectureId=lecture.id}){Text("Открыть")}
+                        }}
+                        item {TextButton(onClick={scope.launch {try {val lecture=localLecture(id);withContext(Dispatchers.IO){lectureStore.save(lecture)};lectureId=lecture.id;revision++}catch(_: Exception){error="Не удалось создать локальную лекцию"}}}){Text("Создать лекцию вручную")}}
+                        item {Text("Прикреплённые документы",style=MaterialTheme.typography.titleMedium)}
                         item {Button(enabled=model.ready && model.progress==null,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Text("Добавить документ или фото")}}
                         model.progress?.let {item {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}}
                         model.error?.let {item {StudyError(it)}}
@@ -84,6 +104,8 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                     SetTab.TEST -> ScreenList {
                         item {SectionHeading("Выберите способ подготовки","Существующие вопросы открываются локально; облако — только по отдельному подтверждению")}
                         item {MethodCard("Параметры прохождения","Общие настройки: таймер, перемешивание и число вопросов",Glyph.SETTINGS,onOptions)}
+                        item {MethodCard("Создать большой тест","100, 200 или 500 вопросов одним тестом; согласие на всю серию",Glyph.AI){workKind=BatchKind.QUIZ;answerBankId=null;workflows=true}}
+                        item {TextButton(onClick={workKind=null;workflows=true}){Text("Обработка и частичные результаты")}}
                         item {MethodCard("Создать тест с ИИ","Выберите материал, фрагмент, сложность и количество вопросов",Glyph.AI){onAi("quizzes")}}
                         item {MethodCard("Создать вопросы вручную","Один или несколько правильных вариантов, без интернета",Glyph.EDIT){onEdit(null)}}
                         if(banks.isEmpty())item {StudyPanel {Text("В наборе пока нет готовых вопросов. Откройте их из документа на вкладке «Материал» или создайте вручную.")}}
@@ -91,7 +113,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                             Text(bank.title,style=MaterialTheme.typography.titleMedium);Text(bank.questions.size.toString()+" вопросов")
                             val unverified=bank.questions.count {!it.evidence.confirmed || it.correctIndices.isEmpty()}
                             if(unverified>0)Text("Без подтверждённого ключа: "+unverified+". Они не участвуют в строгой оценке.")
-                            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {Button(onClick={onQuiz(bank)}){Text("Открыть тест")};TextButton(onClick={onEdit(bank)}){Text("Редактировать")};TextButton(onClick={onCardsFromQuiz(bank)}){Text("Сделать карточки")}}
+                            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {Button(onClick={onQuiz(bank)}){Text("Открыть тест")};TextButton(onClick={onEdit(bank)}){Text("Редактировать")};TextButton(onClick={onCardsFromQuiz(bank)}){Text("Сделать карточки")};if(unverified>0)TextButton(onClick={workKind=BatchKind.ANSWERS;answerBankId=bank.id;workflows=true}){Text("Определить ответы с ИИ")}}
                         }}
                     }
                     SetTab.CARDS -> Column(Modifier.fillMaxSize()) {

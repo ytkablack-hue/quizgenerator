@@ -19,7 +19,7 @@ import java.util.UUID
 
 internal data class QuizDraft(val quiz: Quiz, val original: Quiz? = null,
                               val document: DocumentDetails? = null, val warnings: List<String> = emptyList(),
-                              val detectedCount: Int? = document?.let { quiz.questions.size }) {
+                              val detectedCount: Int? = quiz.sourceDetectedCount ?: document?.let { quiz.questions.size }) {
     val isDirty: Boolean get() = if (original != null) original != quiz
         else quiz.title.isNotBlank() || quiz.questions.isNotEmpty() || document != null
 }
@@ -117,6 +117,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                          encodingControls: @Composable () -> Unit = {}) {
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
+    var repairError by remember {mutableStateOf<String?>(null)}
     val quiz = draft.quiz
     removing?.let { id ->
         StudyConfirmation("Удалить вопрос?", "Изменение будет применено при сохранении теста.", "Удалить",
@@ -142,13 +143,16 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "")
                 }
                 if (draft.document != null) item { encodingControls() }
-                draft.document?.let { document -> item {
-                    StudyPanel(tone = PanelTone.SKY) {
-                        Text(documentCaption(document))
-                        Text("Найдено ${draft.detectedCount ?: quiz.questions.size} вопросов, ${quiz.questions.sumOf { it.options.size }} вариантов, " +
-                            "${quiz.questions.count { it.correctIndices.isNotEmpty() && it.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }} подтверждённых ответов")
+                if(draft.document!=null || quiz.sourceDetectedCount!=null || quiz.importProblems.isNotEmpty())item {
+                    StudyPanel(tone=PanelTone.SKY) {
+                        draft.document?.let {Text(documentCaption(it))}
+                        Text("Найдено ${quiz.sourceDetectedCount ?: draft.detectedCount ?: quiz.questions.size} вопросов")
+                        Text("Распознано ${quiz.questions.size}")
+                        Text("Требуют проверки ${quiz.importProblems.distinctBy {it.number?.toString() ?: it.source}.size}")
+                        Text("Вариантов: ${quiz.questions.sumOf {it.options.size}} · Подтверждённых ключей: ${quiz.questions.count {it.evidence.confirmed && it.correctIndices.isNotEmpty()}}")
                     }
-                } }
+                }
+                repairError?.let {item {StudyError(it)}}
                 if (draft.warnings.isNotEmpty()) item {
                     var show by rememberSaveable { mutableStateOf(false) }
                     StudyPanel(tone = PanelTone.LAVENDER) {
@@ -177,18 +181,29 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                 if (quiz.questions.isEmpty()) item {
                     StudyPanel { Text("Добавьте первый вопрос и варианты ответа.") }
                 }
-                itemsIndexed(quiz.importProblems, key = { index, _ -> "import-problem-$index" }) { _, issue ->
+                itemsIndexed(quiz.importProblems, key = { index, _ -> "import-problem-$index" }) { issueIndex, issue ->
                     var expanded by rememberSaveable { mutableStateOf(false) }
                     StudyPanel(tone = PanelTone.LAVENDER) {
                         Text("Требует проверки: " + (issue.number?.toString() ?: "фрагмент") + " · " + issue.reason)
                         Text("Исходный фрагмент сохранится вместе с тестом и не участвует в оценке.")
                         TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть фрагмент" else "Показать исходный фрагмент") }
                         if (expanded) androidx.compose.foundation.text.selection.SelectionContainer { Text(issue.source) }
+                        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick={try {
+                                val existing=quiz.questions.indexOfFirst {issue.number!=null && it.sourceNumber==issue.number}
+                                if(existing>=0)onQuestion(existing) else {
+                                    val q=ImportReview.repair(issue,quiz.title)
+                                    val (repaired,index)=ImportReview.insert(quiz.questions,q)
+                                    onChange(quiz.copy(questions=repaired));onQuestion(index)
+                                }
+                            }catch(e: Exception){repairError=e.message ?: "Не удалось открыть фрагмент"}}){Text("Исправить в редакторе")}
+                            TextButton(onClick={onChange(quiz.copy(importProblems=quiz.importProblems.filterIndexed {i,_->i!=issueIndex}))}){Text("Проверено")}
+                        }
                     }
                 }
                 itemsIndexed(quiz.questions, key = { _, question -> question.id }) { index, question ->
                     StudyPanel {
-                        Text("${index + 1}. ${question.text}", style = MaterialTheme.typography.titleMedium)
+                        Text("${question.sourceNumber ?: (index + 1)}. ${question.text}", style = MaterialTheme.typography.titleMedium)
                         if (preview) {
                             question.options.forEachIndexed { i, value ->
                                 Text(if (i in question.correctIndices) "${question.evidence.label} · $value" else "• $value")

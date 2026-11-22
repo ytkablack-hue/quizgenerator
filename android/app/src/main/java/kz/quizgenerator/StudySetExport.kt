@@ -22,13 +22,15 @@ internal object StudySetExport {
             StudyStore(temp).save(filtered)
             val sources=set.quizIds.map {id ->require(runCatching {java.util.UUID.fromString(id).toString()==id}.getOrDefault(false));File(root,"quiz_banks/"+id+".json")}+
                 set.materialIds.flatMap {id ->val material=MaterialStore(root);material.load(id);listOf("meta.json","source.bin","document.txt").map {File(material.source(id).parentFile,it)}}
+            val studyFiles=LectureStore(root).list(set.id).map {File(root,"lectures/"+it.id+".json")}+
+                File(root,"batch_jobs").listFiles {f->f.isFile && f.extension=="json"}.orEmpty().filter {file->require(file.canonicalFile.parentFile==File(root,"batch_jobs").canonicalFile) {"Небезопасный путь задания"};require(file.length() in 1..32_000_000);JSONObject(file.readText()).optString("setId")==set.id}
             var total=0L
             ZipOutputStream(out).use {zip ->
                 fun entry(name: String,bytes: ByteArray) {check();zip.putNextEntry(ZipEntry(name));zip.write(bytes);zip.closeEntry()}
                 val manifest=JSONObject().put("version",1).put("id",set.id).put("title",set.title).put("notes",set.notes)
                     .put("materialIds",JSONArray(set.materialIds)).put("quizIds",JSONArray(set.quizIds)).put("cardIds",JSONArray(set.cardIds))
                 entry("set.json",manifest.toString().toByteArray(Charsets.UTF_8));entry("study.json",temp.readBytes())
-                for(file in sources) {
+                for(file in sources+studyFiles) {
                     check();require(file.isFile) {"Один из файлов набора отсутствует"}
                     val name=file.relativeTo(root).invariantSeparatorsPath
                     require(file.canonicalPath==File(root.canonicalFile,name).normalize().path) {"Небезопасный путь экспорта"}

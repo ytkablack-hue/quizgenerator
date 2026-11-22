@@ -13,7 +13,8 @@ data class QuizQuestion(
      * (first) answer so existing single-answer code keeps working. Never store an index here
      * that is already equal to [correctIndex].
      */
-    val additionalCorrectIndices: List<Int> = emptyList()
+    val additionalCorrectIndices: List<Int> = emptyList(),
+    val sourceNumber: Int? = null
 ) {
     /** Authoritative answer key. Single-answer questions yield exactly one element. */
     val correctIndices: List<Int>
@@ -29,7 +30,8 @@ data class Quiz(
     val title: String,
     val questions: List<QuizQuestion>,
     val generatedByAi: Boolean = false,
-    val importProblems: List<ImportProblem> = emptyList()
+    val importProblems: List<ImportProblem> = emptyList(),
+    val sourceDetectedCount: Int? = null
 )
 
 data class QuizScore(

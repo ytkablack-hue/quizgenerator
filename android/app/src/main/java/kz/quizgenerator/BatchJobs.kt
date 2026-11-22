@@ -28,17 +28,17 @@ internal class BatchJobStore(private val root: File,val uid: String) {
     private val directory=File(root,"batch_jobs")
     private fun file(id: String): File {require(UUID.fromString(id).toString()==id);return File(directory,"$id.json").also {require(it.canonicalFile.parentFile==directory.canonicalFile)}}
     fun save(j: BatchJob) = synchronized(lock) {
-        require(j.uid==uid && j.parts.size in 1..100 && j.title.isNotBlank() && j.title.length<=180 && j.consentedAt>0 && j.consent==j.fingerprint()) {"План изменился: требуется новое согласие"}
+        require(j.uid==uid && j.parts.size in 1..(if(j.kind==BatchKind.ANSWERS)5000 else 100) && j.title.isNotBlank() && j.title.length<=180 && j.consentedAt>0 && j.consent==j.fingerprint()) {"План изменился: требуется новое согласие"}
         require(j.target==j.parts.sumOf {it.expected}) {"Количество в плане не совпадает с партиями"}
         require(UUID.fromString(j.setId).toString()==j.setId);require(j.parts.map {it.requestId}.distinct().size==j.parts.size)
-        j.parts.forEach {require(UUID.fromString(it.requestId).toString()==it.requestId);require(it.route in listOf("quizzes","lectures","answers"));require(it.payload.toByteArray().size<=65536)}
+        j.parts.forEach {require(UUID.fromString(it.requestId).toString()==it.requestId);require(it.route in listOf("quizzes","lectures","answers"));require(it.payload.toByteArray().size<=65536);AiRequestRules.validate(it.route,JSONObject(it.payload))}
         val value=JSONObject().put("version",1).put("id",j.id).put("uid",j.uid).put("setId",j.setId).put("kind",j.kind.name).put("title",j.title).put("sourceRef",j.sourceRef).put("target",j.target).put("sourceQuiz",j.sourceQuiz)
             .put("publishedIds",JSONArray(j.publishedIds.sorted())).put("status",j.status.name).put("notice",j.notice).put("nextAt",j.nextAt).put("consent",j.consent).put("consentedAt",j.consentedAt).put("createdAt",j.createdAt)
             .put("parts",JSONArray(j.parts.map {JSONObject().put("requestId",it.requestId).put("route",it.route).put("payload",it.payload).put("expected",it.expected).put("status",it.status.name).put("response",it.response)})).toString()
         require(value.toByteArray().size<=32_000_000);atomicWrite(file(j.id),value)
     }
     fun load(id: String): BatchJob = synchronized(lock) {val f=file(id);require(f.length() in 1..32_000_000);val v=JSONObject(f.readText());require(v.getInt("version")==1 && v.getString("id")==id && v.getString("uid")==uid) {"Задание другого аккаунта"}
-        val a=v.getJSONArray("parts");require(a.length() in 1..100);val parts=List(a.length()){val p=a.getJSONObject(it);BatchPart(p.getString("requestId"),p.getString("route"),p.getString("payload"),p.getInt("expected"),BatchPartStatus.valueOf(p.getString("status")),p.opt("response") as? String)}
+        val a=v.getJSONArray("parts");require(a.length() in 1..5000);val parts=List(a.length()){val p=a.getJSONObject(it);BatchPart(p.getString("requestId"),p.getString("route"),p.getString("payload"),p.getInt("expected"),BatchPartStatus.valueOf(p.getString("status")),p.opt("response") as? String)}
         BatchJob(id,uid,v.getString("setId"),BatchKind.valueOf(v.getString("kind")),v.getString("title"),v.opt("sourceRef") as? String,v.getInt("target"),parts,v.opt("sourceQuiz") as? String,BatchStatus.valueOf(v.getString("status")),v.optString("notice"),v.optLong("nextAt"),v.getString("consent"),v.getLong("consentedAt"),v.getLong("createdAt"),v.optJSONArray("publishedIds")?.let {ids->(0 until ids.length()).map {ids.getString(it)}.toSet()}.orEmpty()).also {require(it.consent==it.fingerprint())}
     }
     fun update(id: String,change: (BatchJob)->BatchJob): BatchJob = synchronized(lock) {change(load(id)).also(::save)}
@@ -81,13 +81,15 @@ internal object BatchPlanning {
     }
     fun answers(uid: String,setId: String,quiz: Quiz): BatchJob {
         val unknown=quiz.questions.filter {!it.evidence.confirmed};require(unknown.isNotEmpty()) {"Все ответы уже подтверждены"}
-        val parts=mutableListOf<BatchPart>();var group=mutableListOf<JSONObject>();var chars=0
-        fun flush(){if(group.isNotEmpty()){parts+=part("answers",JSONObject().put("questions",JSONArray(group)).put("context",""),group.size);group=mutableListOf();chars=0}}
-        for(q in unknown){val size=q.text.length+q.options.sumOf {it.length};require(size<=12000 && q.text.length<=6000 && q.options.all {it.length<=4000}) {"Вопрос ${q.id} слишком большой для серверного анализа"}
-            val item=JSONObject().put("id",q.id).put("text",q.text).put("options",JSONArray(q.options));val next=JSONObject().put("questions",JSONArray(group+item)).put("context","")
-            if(group.size>=25 || chars+size>12000 || next.toString().toByteArray().size>65536)flush()
-            require(JSONObject().put("questions",JSONArray(listOf(item))).put("context","").toString().toByteArray().size<=65536);group+=item;chars+=size
-        };flush();require(parts.size<=100) {"Банк требует более100 запросов. Обрабатывайте его частями"}
+        val parts=mutableListOf<BatchPart>();var group=mutableListOf<QuizQuestion>()
+        fun body(items: List<QuizQuestion>)=JSONObject().put("questions",JSONArray(items.map {q->JSONObject().put("id",q.id).put("text",q.text).put("options",JSONArray(q.options))}))
+            .put("context",items.mapNotNull {it.sourceExcerpt?.takeIf {s->s.isNotBlank()}}.distinct().joinToString("\n\n"))
+        fun fits(items: List<QuizQuestion>): Boolean {val value=body(items);return items.size<=25 && value.toString().toByteArray().size<=65536 &&
+            value.getString("context").length+items.sumOf {q->q.text.length+q.options.sumOf {it.length}}<=12000}
+        fun flush(){if(group.isNotEmpty()){parts+=part("answers",body(group),group.size);group=mutableListOf()}}
+        for(q in unknown){require(q.text.length<=6000 && q.options.all {it.length<=4000} && fits(listOf(q))) {"Вопрос ${q.id} с контекстом слишком большой для серверного анализа. Выберите меньший контекст вручную"}
+            if(!fits(group+q))flush();group+=q
+        };flush();require(parts.size<=5000) {"Слишком большой банк: выберите часть вопросов"}
         return BatchJob(UUID.randomUUID().toString(),uid,setId,BatchKind.ANSWERS,quiz.title,"quiz:"+quiz.id,unknown.size,parts,QuizJson.serialize(quiz))
     }
 }

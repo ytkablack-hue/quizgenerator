@@ -52,7 +52,7 @@ internal class BatchEngine(private val store: BatchJobStore,private val clock: (
         }
     }
     private fun markUnknown(id: String,index: Int,message: String)=store.update(id){j->j.copy(status=if(j.status==BatchStatus.CANCELLED)BatchStatus.CANCELLED else BatchStatus.UNCERTAIN,notice=message,parts=j.parts.mapIndexed {i,p->if(i==index && p.status==BatchPartStatus.SENDING)p.copy(status=BatchPartStatus.UNKNOWN) else p})}
-    fun pause(id: String,cancel: Boolean=false)=store.update(id){it.copy(status=if(cancel)BatchStatus.CANCELLED else BatchStatus.PAUSED,notice=if(cancel)"Отменено. Уже полученные результаты сохранены" else "Приостановлено")}
+    fun pause(id: String,cancel: Boolean=false)=store.update(id){if(it.status==BatchStatus.COMPLETE)it else it.copy(status=if(cancel)BatchStatus.CANCELLED else BatchStatus.PAUSED,notice=if(cancel)"Отменено. Уже полученные результаты сохранены" else "Приостановлено")}
     fun resume(id: String)=store.update(id){require(it.status !in listOf(BatchStatus.COMPLETE,BatchStatus.CANCELLED));require(it.parts.none {p->p.status in listOf(BatchPartStatus.UNKNOWN,BatchPartStatus.SENDING,BatchPartStatus.PARTIAL)}) {"Сначала проверьте неопределённый исход"};it.copy(status=BatchStatus.READY,notice="")}
     fun retryUnknown(id: String)=store.update(id){j->require(j.status !in listOf(BatchStatus.COMPLETE,BatchStatus.CANCELLED));val i=j.parts.indexOfFirst {it.status==BatchPartStatus.UNKNOWN};require(i>=0 && j.parts[i].response==null)
         j.copy(status=BatchStatus.READY,notice="Разрешён один новый запрос вместо неопределённого",parts=j.parts.mapIndexed {n,p->if(n==i)p.copy(status=BatchPartStatus.WAITING,requestId=UUID.randomUUID().toString()) else p})}

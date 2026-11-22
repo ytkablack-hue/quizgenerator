@@ -84,7 +84,7 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
         }
     }
 
-    internal fun attachMaterial(uri: Uri,progress: (ImportProgress)->Unit): MaterialRecord = withDocument(uri) {input ->
+    internal fun attachMaterial(uri: Uri,charset: String?=null,progress: (ImportProgress)->Unit): MaterialRecord = withDocument(uri) {input ->
         val details=describe(uri);val type=format(input,details.name).let {if(it.isBlank())"txt" else it}
         require(details.bytes==null || details.bytes<=MaterialStore.MAX_SOURCE) {"Документ больше 64 МБ"}
         var phase="Загрузка документа";var fraction: Float?=0f
@@ -101,7 +101,7 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
                     "pdf" -> LocalOcr(context).use {engine -> ocr=PdfTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append,onEmpty={emptyPages+=it+1}) {page,p -> phase="Распознавание страниц";engine.page(page,p,allowEmpty=true)}}
                     "image" -> LocalOcr(context).use {engine -> ocr=true;phase="Распознавание изображения";append(engine.image(source,context.cacheDir,file.length(),::report))}
                     else -> {
-                        val decoded=TextDecoder.decode(source.readBytesBounded(MaterialStore.MAX_TEXT*4))
+                        val decoded=TextDecoder.decode(source.readBytesBounded(MaterialStore.MAX_TEXT*4),charset)
                         append(decoded.text)
                         if(!decoded.confident)return@import MaterialText(text.toString(),"Кодировка "+decoded.charset+" определена предположительно. Проверьте текст перед генерацией")
                     }
@@ -112,68 +112,21 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
         }.also {phase="Готово";report(1f)}
     }
 
-    internal fun questionsFromMaterial(id: String): ParsedQuiz {
+    internal fun questionsFromMaterial(id: String,check: ()->Unit={}): ParsedQuiz {
         val record=materials.load(id);val text=materials.text(id)
-        val parsed=if(record.format=="json")ParsedQuiz(QuizJson.parse(text),emptyList()) else QuizTextParser.parse(text,record.name.substringBeforeLast('.'))
+        var parsed=if(record.format=="json")ParsedQuiz(QuizJson.parse(text),emptyList()) else QuizTextParser.parseFrom(record.name.substringBeforeLast('.'),check) {consume->text.lineSequence().forEach(consume)}
+        if(record.notice.contains("Без распознанного текста:"))parsed=parsed.copy(quiz=parsed.quiz.copy(importProblems=parsed.quiz.importProblems+ImportProblem(null,"Проверьте нераспознанные страницы оригинала",record.notice)),warnings=parsed.warnings+record.notice)
+        if(record.notice.contains("ИИ-лекции"))return parsed.copy(quiz=parsed.quiz.copy(generatedByAi=true,questions=parsed.quiz.questions.map {it.copy(evidence=if(it.correctIndices.isEmpty())AnswerEvidence.UNKNOWN else AnswerEvidence.CLOUD_AI)}))
         return if(record.notice.contains("OCR"))parsed.copy(quiz=OcrReview.review(parsed.quiz,true)) else parsed
     }
 
-    internal fun previewImport(
-        uri: Uri,
-        charset: String? = null,
-        onDecoded: (DecodedText) -> Unit = {},
-        progress: (ImportProgress) -> Unit
-    ): ImportResult = withDocument(uri) { stream ->
-        val details = describe(uri)
-        val format = format(stream, details.name)
-        val title = details.name.substringBeforeLast('.')
-        fun report(fraction: Float?) = progress(ImportProgress(details, fraction))
-        report(0f)
-        val counted = object : FilterInputStream(stream) {
-            var total = 0L
-            override fun read(): Int = super.read().also { if (it >= 0) total++ }
-            override fun read(b: ByteArray, off: Int, len: Int): Int =
-                super.read(b, off, len).also { if (it > 0) total += it }
-        }
-        var detectedCharset = "UTF-8"
-        var confident = true
-        var preview = ""
-        var usedOcr=false
-        val parsed = when (format) {
-            "pdf" -> QuizTextParser.parseFrom(title, { report(null) }) { consume ->
-                LocalOcr(context).use { engine ->
-                    usedOcr=PdfTextExtractor.paragraphs(counted,context.cacheDir,details.bytes,::report,consume) {page,progress -> engine.page(page,progress)}
-                }
-            }
-            "image" -> {
-                usedOcr=true
-                val text=LocalOcr(context).use {it.image(counted,context.cacheDir,details.bytes,::report)}
-                QuizTextParser.parseFrom(title,{report(null)}) {consume -> text.lineSequence().forEach(consume)}
-            }
-            "docx" -> QuizTextParser.parseFrom(title) { consume ->
-                DocxTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
-            }
-            else -> {
-                val decoded = TextDecoder.decode(bytes(counted, details.bytes, ::report), charset)
-                onDecoded(decoded)
-                detectedCharset = decoded.charset
-                confident = decoded.confident
-                preview = decoded.text.take(500)
-                if (format == "json" || decoded.text.trimStart().startsWith("{")) {
-                    ParsedQuiz(QuizJson.parse(decoded.text), emptyList())
-                } else {
-                    QuizTextParser.parseFrom(title, { report(null) }) { consume -> decoded.text.lineSequence().forEach(consume) }
-                }
-            }
-        }
-        report(1f)
-        val warnings = (if(usedOcr)parsed.warnings+"Использован локальный OCR. Проверьте текст, варианты и ключи: OCR-ключи не оцениваются до ручного подтверждения." else parsed.warnings) + if (confident) emptyList() else listOf(
-            "Кодировка определена как $detectedCharset предположительно. Проверьте текст или выберите кодировку вручную."
-        )
-        ImportResult(
-            OcrReview.review(parsed.quiz,usedOcr), warnings, details.copy(bytes = counted.total),
-            charset = detectedCharset, encodingConfident = confident, preview = preview
-        )
+    internal fun previewImport(uri: Uri,charset: String?=null,onDecoded: (DecodedText)->Unit={},progress: (ImportProgress)->Unit): ImportResult {
+        val record=attachMaterial(uri,charset,progress)
+        require(!record.notice.contains("Без распознанного текста:")) {"Некоторые страницы не распознаны. Полный оригинал сохранён; проверьте его перед импортом"}
+        val parsed=questionsFromMaterial(record.id) {progress(ImportProgress(DocumentDetails(record.name,record.bytes),null,"Распознавание вопросов"))}
+        val decoded=if(record.format in listOf("txt","json"))TextDecoder.decode(materials.source(record.id).readBytes(),charset) else null
+        if(decoded!=null)onDecoded(decoded)
+        return ImportResult(parsed.quiz,parsed.warnings+listOf(record.notice).filter {it.isNotBlank()},DocumentDetails(record.name,record.bytes),decoded?.charset ?: "UTF-8",decoded?.confident ?: true,decoded?.text?.take(500).orEmpty())
     }
 
     /** Persist the manually reviewed answer key; keep the read-only demo quiz intact. */

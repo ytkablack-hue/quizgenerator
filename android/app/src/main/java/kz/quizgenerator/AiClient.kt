@@ -17,7 +17,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
     }
 
     suspend fun configured(): Boolean = request("status").getBoolean("configured")
-    suspend fun capabilities(): Set<String> {val value=request("status");val a=value.optJSONArray("capabilities") ?: return setOf("quizzes","flashcards","review","extract");return (0 until a.length()).map {a.getString(it)}.toSet()}
+    suspend fun capabilities(): Set<String> {val value=request("status");if(!value.optBoolean("configured"))return emptySet();val a=value.optJSONArray("capabilities") ?: return setOf("quizzes","flashcards","review","extract");return (0 until a.length()).map {a.getString(it)}.toSet()}
     suspend fun batch(route: String,body: JSONObject,requestId: String): JSONObject {require(route in listOf("quizzes","lectures","answers"));require(UUID.fromString(requestId).toString()==requestId);return request(route,body,requestId)}
 
     suspend fun quiz(topic: String, material: String, difficulty: String, count: Int): Quiz {

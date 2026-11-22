@@ -81,6 +81,15 @@ internal class MaterialUiModel: ViewModel() {
             finally {progress=null}
         }
     }
+    fun fromLecture(repository: QuizRepository,lecture: Lecture,after: ()->Unit) {
+        if(!ready || attaching?.isActive==true)return
+        attaching=work.launch {
+            try {error=null
+                val saved=withContext(Dispatchers.IO) {val value=repository.materials.import(lecture.title+".txt","txt",lecture.body.byteInputStream()){MaterialText(lecture.body,"Снимок ИИ-лекции: объяснения и ответы требуют проверки")};repository.sets.linkMaterial(lecture.setId,value.id);value}
+                records=listOf(saved)+records;setRevision++;update(draft.copy(inputMode=AiInputMode.DOCUMENT));select(saved.id);after()
+            }catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось подготовить снимок лекции. Исходная лекция сохранена"}
+        }
+    }
     fun completed(context: String,part: Int) {
         val values=(draft.completed[context].orEmpty()+part).distinct()
         val next=draft.completed+(context to values)

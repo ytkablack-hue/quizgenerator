@@ -393,7 +393,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         onAi={aiTask=it;aiAttemptId=study.attempts.lastOrNull {a->a.mistakes.isNotEmpty()}?.id;page=Page.AI},
                         onCardsFromQuiz={openQuiz(it);quizSetReturn=true;page=Page.WORKSPACE;showCardCreation=true},
                         onImportQuiz={openDraft(QuizDraft(it),Page.WORKSPACE)},onOptions={settingsReturn=Page.WORKSPACE;page=Page.SETTINGS},onExport=exportSet,
-                        onOwnText={creationSource=CreationSource.TEXT;page=Page.SOURCE})}}
+                        onOwnText={creationSource=CreationSource.TEXT;page=Page.SOURCE},onStoredQuiz={saved->quizzes=quizzes.filterNot {it.id==saved.id}+saved})}}
 
                     Page.SOURCE -> {
                         editor.load?.let { StudyLoading("Обработка документа", it.fraction, editor::cancel) }
@@ -426,7 +426,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         if(draftSaving)StudyLoading("Сохранение теста") else DraftScreen(draft,
                             { editor.draft = draft.copy(quiz = it); draftError = null },
                             { index ->
-                                editor.fields = QuestionFields(draft.quiz.questions.getOrNull(index) ?: emptyQuestion())
+                                editor.fields = QuestionFields(editor.draft?.quiz?.questions?.getOrNull(index) ?: emptyQuestion())
                                 page = Page.QUESTION
                             }, ::goBack, {
                                 if(!draftSaving) {

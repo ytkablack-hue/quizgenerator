@@ -176,7 +176,8 @@ object QuizTextParser {
                                 (inline != null && marked.isNotEmpty() && inline.first.toSet() != marked.toSet()) -> AnswerEvidence.INFERRED
                             else -> AnswerEvidence.SOURCE
                         },
-                        additionalCorrectIndices = indices.filter { it != primary }.distinct()
+                        additionalCorrectIndices = indices.filter { it != primary }.distinct(),
+                        sourceNumber=draft.number ?: draft.ordinal
                     ),
                     draft.options.map { it.label }, draft.raw.toString()
                 )
@@ -370,7 +371,7 @@ object QuizTextParser {
         }
         if (omittedWarnings > 0) warnings.add("Других замечаний: $omittedWarnings")
         return ParsedQuiz(
-            Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, deduped, importProblems = problems),
+            Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, deduped, importProblems = problems,sourceDetectedCount=ordinal),
             warnings
         )
     }

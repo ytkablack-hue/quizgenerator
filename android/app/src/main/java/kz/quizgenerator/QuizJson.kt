@@ -69,7 +69,7 @@ object QuizJson {
                 if (!item.has("answerEvidence")) fallback
                 else runCatching { AnswerEvidence.valueOf(item.getString("answerEvidence")) }.getOrDefault(AnswerEvidence.INFERRED)
             }
-            QuizQuestion(questionId, text, options, primary, explanation, sourceExcerpt, evidence, additional)
+            QuizQuestion(questionId, text, options, primary, explanation, sourceExcerpt, evidence, additional,if(item.isNull("sourceNumber"))null else item.getInt("sourceNumber").also {require(it in 0..1000000)})
         }
 
         val rawProblems = root.optJSONArray("importProblems") ?: JSONArray()
@@ -85,7 +85,7 @@ object QuizJson {
             val number = if (item.isNull("number")) null else item.getInt("number")
             ImportProblem(number, reason, source)
         }
-        return Quiz(id, title, questions, root.optString("source") == "ai", problems)
+        return Quiz(id, title, questions, root.optString("source") == "ai", problems,if(root.isNull("sourceDetectedCount"))null else root.getInt("sourceDetectedCount").also {require(it in 0..1000000)})
     }
 
     fun serialize(quiz: Quiz): String {
@@ -93,6 +93,7 @@ object QuizJson {
             .put("id", quiz.id)
             .put("title", quiz.title)
         if (quiz.generatedByAi) result.put("source", "ai")
+        quiz.sourceDetectedCount?.let {result.put("sourceDetectedCount",it)}
 
         val questions = JSONArray()
         quiz.questions.forEach { q ->
@@ -107,7 +108,7 @@ object QuizJson {
                     .put("correctIndices", JSONArray(q.correctIndices))
                     .put("explanation", q.explanation ?: JSONObject.NULL)
                     .put("sourceExcerpt", q.sourceExcerpt ?: JSONObject.NULL)
-                    .put("answerEvidence", q.evidence.name)
+                    .put("answerEvidence", q.evidence.name).also {if(q.sourceNumber!=null)it.put("sourceNumber",q.sourceNumber)}
             )
         }
         result.put("questions", questions)

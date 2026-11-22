@@ -12,9 +12,10 @@ internal object LibraryBackup {
             File(root,"quiz_banks").listFiles { f -> f.isFile && f.extension=="json" }.orEmpty().sortedBy { it.name } +
             File(root,"materials").listFiles().orEmpty().filter {it.isDirectory && runCatching {java.util.UUID.fromString(it.name).toString()==it.name}.getOrDefault(false)}
                 .flatMap {dir -> listOf("meta.json","document.txt","source.bin").map {File(dir,it)} }
+        val extra=listOf("lectures","batch_jobs").flatMap {name->File(root,name).listFiles {f->f.isFile && f.extension=="json" && runCatching {java.util.UUID.fromString(f.nameWithoutExtension).toString()==f.nameWithoutExtension}.getOrDefault(false)}.orEmpty().toList()}
         var total=0L
         ZipOutputStream(output).use { zip ->
-            for(file in files.filter { it.exists() }) {
+            for(file in (files+extra).filter { it.exists() }) {
                 checkCancelled()
                 val relative=file.relativeTo(root).invariantSeparatorsPath
                 require(file.canonicalPath==File(root.canonicalFile,relative).normalize().path) { "Небезопасный путь библиотеки" }
