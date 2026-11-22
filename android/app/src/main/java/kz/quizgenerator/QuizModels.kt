@@ -22,11 +22,14 @@ data class QuizQuestion(
     val isMultiAnswer: Boolean get() = correctIndices.size > 1
 }
 
+data class ImportProblem(val number: Int?, val reason: String, val source: String)
+
 data class Quiz(
     val id: String,
     val title: String,
     val questions: List<QuizQuestion>,
-    val generatedByAi: Boolean = false
+    val generatedByAi: Boolean = false,
+    val importProblems: List<ImportProblem> = emptyList()
 )
 
 data class QuizScore(

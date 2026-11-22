@@ -19,6 +19,7 @@ object QuizTextParser {
     private data class OptionDraft(val label: String, var text: String, val marked: Boolean)
 
     private class Draft(val ordinal: Int, val number: Int?, var text: String, val tagged: Boolean) {
+        val raw = StringBuilder()
         val options = mutableListOf<OptionDraft>()
         val plain = mutableListOf<String>()
         var answerRaw: String? = null
@@ -27,7 +28,7 @@ object QuizTextParser {
         var lastNumericOption: Int? = null
     }
 
-    private data class ParsedEntry(val number: Int?, val question: QuizQuestion, val labels: List<String>)
+    private data class ParsedEntry(val number: Int?, val question: QuizQuestion, val labels: List<String>, val source: String)
 
     fun parse(source: String, title: String): ParsedQuiz =
         parseFrom(title) { consume -> source.lineSequence().forEach(consume) }
@@ -42,6 +43,11 @@ object QuizTextParser {
         val warnings = mutableListOf<String>()
         var omittedWarnings = 0
         val entries = mutableListOf<ParsedEntry>()
+        val problems = mutableListOf<ImportProblem>()
+        fun problem(number: Int?, reason: String, source: String) {
+            require(problems.size < QuizLimits.QUESTIONS) { "Слишком много проблемных фрагментов. Разделите документ" }
+            problems.add(ImportProblem(number, reason, source))
+        }
         val keys = mutableMapOf<Int, List<String>>()
         var keyMode = false
         var current: Draft? = null
@@ -101,14 +107,17 @@ object QuizTextParser {
             current = null
             if (draft.text.isBlank()) {
                 warning("Запись ${draft.number ?: draft.ordinal} пропущена: нет текста вопроса")
+                problem(draft.number ?: draft.ordinal, "нет текста вопроса", draft.raw.toString())
                 return
             }
             if (draft.options.size < 2) {
                 warning("Вопрос ${draft.number ?: draft.ordinal} пропущен: нужны текст и минимум два непустых варианта")
+                problem(draft.number ?: draft.ordinal, "нужны текст и минимум два непустых варианта", draft.raw.toString())
                 return
             }
             if (draft.options.any { it.text.isBlank() }) {
                 warning("Вопрос ${draft.number ?: draft.ordinal} пропущен: есть пустой вариант")
+                problem(draft.number ?: draft.ordinal, "есть пустой вариант", draft.raw.toString())
                 return
             }
 
@@ -135,6 +144,10 @@ object QuizTextParser {
                 warning("Вопрос ${draft.number ?: draft.ordinal}: ответ и отметка варианта расходятся — проверьте")
             }
 
+            if (inline?.second?.isNotEmpty() == true ||
+                (inline != null && marked.isNotEmpty() && inline.first.toSet() != marked.toSet())) {
+                problem(draft.number ?: draft.ordinal, "Неоднозначный ключ ответа", draft.raw.toString())
+            }
             val primary = indices.firstOrNull()
             require(entries.size < QuizLimits.QUESTIONS) { "В документе больше ${QuizLimits.QUESTIONS} вопросов" }
             entries.add(
@@ -154,7 +167,7 @@ object QuizTextParser {
                         },
                         additionalCorrectIndices = indices.filter { it != primary }.distinct()
                     ),
-                    draft.options.map { it.label }
+                    draft.options.map { it.label }, draft.raw.toString()
                 )
             )
         }
@@ -178,7 +191,9 @@ object QuizTextParser {
             }
         }
 
+        checkCancelled()
         read { rawLine ->
+            try {
             lineCount++
             if (lineCount % 256 == 0) checkCancelled()
             seen += rawLine.length + 1L
@@ -281,8 +296,12 @@ object QuizTextParser {
                 Field.OPTION -> draft.options.last().text = append(draft.options.last().text, line)
                 Field.QUESTION -> draft.plain.add(line)
             }
+            } finally {
+                current?.raw?.append(rawLine)?.append('\n')
+            }
         }
 
+        checkCancelled()
         resolvePlain(asOptions = true)
         flush()
 
@@ -324,6 +343,7 @@ object QuizTextParser {
                 question.options.joinToString("\u0001") { it.trim().lowercase(Locale.ROOT) }
             if (seenSignatures.add(signature)) question else {
                 duplicates++
+                problem(entry.number, "Повтор вопроса — проверьте необходимость сохранения", entry.source)
                 null
             }
         }
@@ -334,7 +354,7 @@ object QuizTextParser {
         }
         if (omittedWarnings > 0) warnings.add("Других замечаний: $omittedWarnings")
         return ParsedQuiz(
-            Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, deduped),
+            Quiz(UUID.randomUUID().toString(), title.ifBlank { "Импортированный тест" }, deduped, importProblems = problems),
             warnings
         )
     }

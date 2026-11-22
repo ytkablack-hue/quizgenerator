@@ -72,7 +72,20 @@ object QuizJson {
             QuizQuestion(questionId, text, options, primary, explanation, sourceExcerpt, evidence, additional)
         }
 
-        return Quiz(id, title, questions, root.optString("source") == "ai")
+        val rawProblems = root.optJSONArray("importProblems") ?: JSONArray()
+        require(rawProblems.length() <= QuizLimits.QUESTIONS) { "Слишком много проблем импорта" }
+        val problems = (0 until rawProblems.length()).map { i ->
+            val item = rawProblems.getJSONObject(i)
+            val parts = item.getJSONArray("sourceParts")
+            require(parts.length() <= 134) { "Слишком длинный проблемный фрагмент" }
+            val source = (0 until parts.length()).joinToString("") { n ->
+                parts.getString(n).also { require(it.length <= 60_000) }
+            }
+            val reason = item.getString("reason").also { require(it.length <= 400) }
+            val number = if (item.isNull("number")) null else item.getInt("number")
+            ImportProblem(number, reason, source)
+        }
+        return Quiz(id, title, questions, root.optString("source") == "ai", problems)
     }
 
     fun serialize(quiz: Quiz): String {
@@ -98,6 +111,14 @@ object QuizJson {
             )
         }
         result.put("questions", questions)
+        if (quiz.importProblems.isNotEmpty()) {
+            val problems = JSONArray()
+            quiz.importProblems.forEach { issue ->
+                problems.put(JSONObject().put("number", issue.number ?: JSONObject.NULL)
+                    .put("reason", issue.reason).put("sourceParts", JSONArray(issue.source.chunked(60_000))))
+            }
+            result.put("importProblems", problems)
+        }
         return result.toString(2)
     }
 }

@@ -57,6 +57,7 @@ object DocxTextExtractor {
                 }
             }
             ZipFile(archive).use { zip ->
+                val numbering = WordNumbering.read(zip) { progress(.45f) }
                 val entry = zip.getEntry("word/document.xml")
                     ?: throw IllegalArgumentException("В DOCX нет основного текста документа")
                 require(entry.size in 0..MAX_XML_BYTES) { TOO_LARGE }
@@ -99,7 +100,7 @@ object DocxTextExtractor {
                         progress(.45f + .54f * (read.toFloat() / entry.size.coerceAtLeast(1)).coerceAtMost(1f))
                     }
                 }
-                checked.use { parseXml(it, consume) }
+                checked.use { parseXml(it, numbering, consume) }
                 require(read == entry.size && crc.value == entry.crc) { "Повреждённый документ Word" }
             }
             progress(1f)
@@ -112,7 +113,7 @@ object DocxTextExtractor {
         }
     }
 
-    private fun parseXml(input: InputStream, consume: (String) -> Unit) {
+    private fun parseXml(input: InputStream, numbering: WordNumbering, consume: (String) -> Unit) {
         val factory = SAXParserFactory.newInstance().apply {
             isNamespaceAware = true
             runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
@@ -123,13 +124,17 @@ object DocxTextExtractor {
             private val paragraph = StringBuilder()
             private var inParagraph = false
             private var inText = false
+            private var numId: String? = null
+            private var level = 0
 
             override fun resolveEntity(publicId: String?, systemId: String?): InputSource =
                 throw SAXException("Внешние XML-ресурсы отключены")
 
             override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
                 when (localName?.takeIf(String::isNotEmpty) ?: qName?.substringAfter(':')) {
-                    "p" -> { flush(); inParagraph = true }
+                    "p" -> { flush(); inParagraph = true; numId = null; level = 0 }
+                    "numId" -> if (inParagraph) numId = attributes?.getValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val") ?: attributes?.getValue("w:val")
+                    "ilvl" -> if (inParagraph) level = (attributes?.getValue("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val") ?: attributes?.getValue("w:val"))?.toIntOrNull() ?: 0
                     "t" -> inText = true
                     "tab", "br" -> if (inParagraph) appendSpace()
                 }
@@ -155,7 +160,7 @@ object DocxTextExtractor {
             }
 
             private fun flush() {
-                if (paragraph.isNotBlank()) paragraph.toString().lineSequence().forEach(consume)
+                if (paragraph.isNotBlank()) (numbering.prefix(numId, level) + paragraph.toString()).lineSequence().forEach(consume)
                 paragraph.setLength(0)
             }
         }

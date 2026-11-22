@@ -185,6 +185,15 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                 if (quiz.questions.isEmpty()) item {
                     StudyPanel { Text("Добавьте первый вопрос и варианты ответа.") }
                 }
+                itemsIndexed(quiz.importProblems, key = { index, _ -> "import-problem-$index" }) { _, issue ->
+                    var expanded by rememberSaveable { mutableStateOf(false) }
+                    StudyPanel(tone = PanelTone.LAVENDER) {
+                        Text("Требует проверки: " + (issue.number?.toString() ?: "фрагмент") + " · " + issue.reason)
+                        Text("Исходный фрагмент сохранится вместе с тестом и не участвует в оценке.")
+                        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть фрагмент" else "Показать исходный фрагмент") }
+                        if (expanded) androidx.compose.foundation.text.selection.SelectionContainer { Text(issue.source) }
+                    }
+                }
                 itemsIndexed(quiz.questions, key = { _, question -> question.id }) { index, question ->
                     StudyPanel {
                         Text("${index + 1}. ${question.text}", style = MaterialTheme.typography.titleMedium)
