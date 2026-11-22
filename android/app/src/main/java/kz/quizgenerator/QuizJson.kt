@@ -65,7 +65,7 @@ object QuizJson {
             }
             val sourceExcerpt = item.opt("sourceExcerpt") as? String
             val evidence = if (primary == null) AnswerEvidence.UNKNOWN else {
-                val fallback = if (root.optString("source") == "ai") AnswerEvidence.INFERRED else AnswerEvidence.SOURCE
+                val fallback = if (root.optString("source") == "ai") AnswerEvidence.CLOUD_AI else AnswerEvidence.SOURCE
                 if (!item.has("answerEvidence")) fallback
                 else runCatching { AnswerEvidence.valueOf(item.getString("answerEvidence")) }.getOrDefault(AnswerEvidence.INFERRED)
             }

@@ -14,7 +14,11 @@ enum class AnswerEvidence(val label: String) {
     SOURCE("Подтверждён источником"),
     MANUAL("Подтверждён вручную"),
     INFERRED("Предположительный ответ"),
-    UNKNOWN("Правильный ответ неизвестен")
+    LOCAL_AI("Предположение локального ИИ"),
+    CLOUD_AI("Предположение облачного ИИ"),
+    UNKNOWN("Правильный ответ неизвестен");
+    val confirmed: Boolean get() = this == SOURCE || this == MANUAL
+    val assumed: Boolean get() = this == INFERRED || this == LOCAL_AI || this == CLOUD_AI
 }
 
 internal object AnswerPolicy {

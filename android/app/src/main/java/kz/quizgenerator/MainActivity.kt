@@ -144,6 +144,8 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     var questionIndex by rememberSaveable { mutableIntStateOf(restored?.index ?: 0) }
     LaunchedEffect(Unit) { if (restored != null && editor.activeAnswers.isEmpty()) editor.activeAnswers = restored.answers }
     var answers by editor::activeAnswers
+    var selections by editor::activeSelections
+    LaunchedEffect(Unit) { if(restored!=null && selections.isEmpty()) selections=restored.selections ?: restored.answers.map { setOfNotNull(it) } }
     var seed by rememberSaveable { mutableLongStateOf(0L) }
     var attemptId by rememberSaveable { mutableStateOf(restored?.attemptId ?: "") }
     var timerMinutes by rememberSaveable { mutableIntStateOf(study.settings.minutes) }
@@ -194,6 +196,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         seed = System.nanoTime()
         sessionQuiz = StudyLogic.prepare(quiz, study.settings, seed)
         answers = ArrayList(List(sessionQuiz!!.questions.size) { null })
+        selections = List(sessionQuiz!!.questions.size) { emptySet() }
         attemptId = UUID.randomUUID().toString()
         deadline = QuizTimer.deadline(SystemClock.elapsedRealtime(), timerMinutes)
         wallDeadline = QuizTimer.deadline(System.currentTimeMillis(), timerMinutes)
@@ -205,8 +208,8 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     fun finish() {
         if (page != Page.QUIZ) return
         val quiz = prepared ?: return
-        if (answers.size != quiz.questions.size) return
-        val attempt = StudyLogic.complete(attemptId, quiz, answers, System.currentTimeMillis())
+        if (answers.size != quiz.questions.size || selections.size != quiz.questions.size) return
+        val attempt = StudyLogic.completeSelections(attemptId, quiz, selections, System.currentTimeMillis())
         if (study.attempts.none { it.id == attempt.id } && !update(study.copy(attempts = study.attempts + attempt))) {
             libraryError = "Не удалось сохранить результат. Повторите завершение"
             return
@@ -217,9 +220,9 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         page = Page.RESULTS
     }
 
-    LaunchedEffect(page, prepared, answers, questionIndex, deadline) {
-        if (page == Page.QUIZ && prepared != null && answers.size == prepared.questions.size) {
-            runCatching { activeStore.save(ActiveAttempt(prepared, answers, questionIndex, attemptId, deadline, wallDeadline, bootCount)) }
+    LaunchedEffect(page, prepared, answers, selections, questionIndex, deadline) {
+        if (page == Page.QUIZ && prepared != null && selections.size == prepared.questions.size && answers.size == prepared.questions.size) {
+            runCatching { activeStore.save(ActiveAttempt(prepared, answers, questionIndex, attemptId, deadline, wallDeadline, bootCount,selections)) }
                 .onFailure { libraryError = "Не удалось сохранить текущие ответы" }
         }
     }
@@ -421,16 +424,21 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                             { openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW) }, { start(quiz) }, { showCardCreation = true })
                     }
                     Page.QUIZ -> prepared?.takeIf { questionIndex in it.questions.indices && answers.size == it.questions.size }?.let {
-                        RunScreen(it, questionIndex, answers[questionIndex], seconds.takeIf { deadline != 0L },
+                        RunScreen(it, questionIndex, selections.getOrNull(questionIndex).orEmpty(), seconds.takeIf { deadline != 0L },
                             study.settings.showHints, { option ->
                                 if (QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finish()
-                                else answers = ArrayList(answers).also { list -> list[questionIndex] = option }
+                                else {
+                                    val old=selections.getOrNull(questionIndex).orEmpty()
+                                    val next=if(it.questions[questionIndex].isMultiAnswer) { if(option in old)old-option else old+option } else setOf(option)
+                                    selections=selections.toMutableList().also { list -> list[questionIndex]=next }
+                                    answers=answers.toMutableList().also { list -> list[questionIndex]=next.minOrNull() }
+                                }
                             }, { if (questionIndex > 0) questionIndex-- }, {
                                 if (QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finish() else questionIndex++
                             }, { confirmation = Confirmation.FINISH_QUIZ })
                     }
                     Page.RESULTS -> prepared?.takeIf { answers.size == it.questions.size }?.let {
-                        ResultsScreen(it, answers, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack)
+                        ResultsScreen(it, selections, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack)
                     }
                 }
                 }

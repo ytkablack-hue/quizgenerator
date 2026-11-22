@@ -199,8 +199,8 @@ class QuizTextParserFormatsTest {
         assertEquals(listOf(0, 2), question.correctIndices)
         assertEquals(0, question.correctIndex)
         assertTrue(question.isMultiAnswer)
-        // Multi-answer questions are not graded until the UI can collect several answers.
-        assertEquals(QuizScore(0, 0, 0, 1), QuizScorer.score(result.quiz, listOf(0)))
+        // A strict multiple-answer key requires the complete set.
+        assertEquals(QuizScore(0, 1, 0, 0), QuizScorer.score(result.quiz, listOf(0)))
     }
 
     @Test fun mixedTaggedAndNumberedFormats() {

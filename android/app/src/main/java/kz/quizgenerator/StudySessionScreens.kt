@@ -33,7 +33,7 @@ internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
             }
         }
         item {
-            val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
+            val inferred = quiz.questions.count { it.evidence.assumed }
             if (inferred > 0) Text("Предположительных ключей: $inferred. Они исключены из оценки до ручного подтверждения.")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onStart) { Text("Начать тест") }
@@ -53,7 +53,7 @@ internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hints: Boolean,
+internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, hints: Boolean,
                        onAnswer: (Int) -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
                        onFinish: () -> Unit) {
     val question = quiz.questions[index]
@@ -86,16 +86,17 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hint
                     item {
                         StudyPanel(tone = PanelTone.LAVENDER) {
                             Text(question.text, style = MaterialTheme.typography.headlineSmall)
+                            if(question.isMultiAnswer)Text("Выберите все правильные варианты")
                         }
                     }
                     item {
                         Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             question.options.forEachIndexed { option, label ->
-                                val selected = answer == option
+                                val selected = option in answer
                                 val colors = MaterialTheme.colorScheme
                                 Surface(
                                     modifier = Modifier.fillMaxWidth()
-                                        .selectable(selected, role = Role.RadioButton, onClick = { onAnswer(option) }),
+                                        .selectable(selected, role = if(question.isMultiAnswer)Role.Checkbox else Role.RadioButton, onClick = { onAnswer(option) }),
                                     color = if (selected) colors.secondaryContainer else colors.surface,
                                     contentColor = if (selected) colors.onSecondaryContainer else colors.onSurface,
                                     shape = MaterialTheme.shapes.medium,
@@ -103,7 +104,7 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hint
                                 ) {
                                     Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        RadioButton(selected, onClick = null)
+                                        if(question.isMultiAnswer)Checkbox(selected,onCheckedChange=null) else RadioButton(selected, onClick = null)
                                         Text(label, style = MaterialTheme.typography.bodyLarge)
                                     }
                                 }
@@ -128,11 +129,11 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Int?, seconds: Int?, hint
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, showAnswers: Boolean,
+internal fun ResultsScreen(quiz: Quiz, answers: List<Set<Int>>, expired: Boolean, showAnswers: Boolean,
                            repeat: () -> Unit, library: () -> Unit) {
-    val score = QuizScorer.score(quiz, answers)
+    val score = QuizScorer.scoreSelections(quiz, answers)
     val percent = if (score.gradedTotal > 0) (100f * score.correct / score.gradedTotal).roundToInt() else null
-    val missed = quiz.questions.indices.filter { quiz.questions[it].correctIndex != null && quiz.questions[it].evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) && answers[it] != quiz.questions[it].correctIndex }
+    val missed = quiz.questions.indices.filter { quiz.questions[it].correctIndices.isNotEmpty() && quiz.questions[it].evidence.confirmed && answers[it] != quiz.questions[it].correctIndices.toSet() }
     ScreenList {
         item { SectionHeading("Результат", quiz.title) }
         item {
@@ -157,7 +158,7 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
             val question = quiz.questions[index]
             StudyPanel {
                 Text(question.text, style = MaterialTheme.typography.titleMedium)
-                Text("Твой ответ · ${answers[index]?.let(question.options::get) ?: "Пропущен"}")
+                Text("Твой ответ · ${answers[index].sorted().joinToString { question.options[it] }.ifEmpty { "Пропущен" }}")
                 if (showAnswers) {
                     if (question.correctIndices.isNotEmpty()) Text("Правильный ответ · " +
                         question.correctIndices.joinToString { question.options[it] })

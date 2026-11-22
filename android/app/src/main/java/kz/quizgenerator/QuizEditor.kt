@@ -50,12 +50,13 @@ internal object EditorRules {
 internal class QuestionFields(val initial: QuizQuestion) {
     var text by mutableStateOf(initial.text)
     var options by mutableStateOf<List<String>>(initial.options.toList())
-    var correct by mutableStateOf(initial.correctIndex)
+    var correct by mutableStateOf(initial.correctIndices.toSet())
     var explanation by mutableStateOf(initial.explanation.orEmpty())
 }
 
 internal class EditorModel : ViewModel() {
     var activeAnswers by mutableStateOf<List<Int?>>(emptyList())
+    var activeSelections by mutableStateOf<List<Set<Int>>>(emptyList())
     var fields by mutableStateOf<QuestionFields?>(null)
     var draft by mutableStateOf<QuizDraft?>(null)
     var load by mutableStateOf<ImportProgress?>(null)
@@ -171,7 +172,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                 item {
                     StudyPanel(tone = PanelTone.SKY) {
                         val unknown = quiz.questions.count { it.correctIndices.isEmpty() }
-                        val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
+                        val inferred = quiz.questions.count { it.evidence.assumed }
                         val multiple = quiz.questions.count { it.isMultiAnswer }
                         Text("Без ключа: $unknown · Предположительных: $inferred" +
                             if (multiple > 0) " · С несколькими ответами: $multiple" else "")
@@ -239,7 +240,7 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
     var failure by rememberSaveable { mutableStateOf<String?>(null) }
     var discard by rememberSaveable { mutableStateOf(false) }
     var confirmed by rememberSaveable { mutableStateOf(false) }
-    val dirty = text != question.text || options != question.options || correct != question.correctIndex || explanation != question.explanation.orEmpty() || confirmed
+    val dirty = text != question.text || options != question.options || correct != question.correctIndices.toSet() || explanation != question.explanation.orEmpty() || confirmed
     fun back() { if (dirty) discard = true else onCancel() }
     BackHandler { back() }
     if (discard) StudyConfirmation("Отменить правки вопроса?", "Текст, введённый на этом экране, не сохранится.", "Отменить правки",
@@ -247,14 +248,14 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
     ScreenList {
         item {
             TextButton(onClick = { back() }) { Text("Назад") }
-            SectionHeading("Вопрос", "Отметьте правильный вариант или оставьте ключ неизвестным.")
+            SectionHeading("Вопрос", "Отметьте один или несколько правильных вариантов либо оставьте ключ неизвестным.")
         }
         failure?.let { item { StudyError(it) } }
         item { Text(question.evidence.label) }
         item { StudyField(text, { text = it.take(65_536) }, "Текст вопроса") }
         itemsIndexed(options) { i, option ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RadioButton(selected = correct == i, onClick = { correct = i; confirmed = true })
+                Checkbox(checked = i in correct, onCheckedChange = { checked -> correct = if(checked)correct+i else correct-i; confirmed = true })
                 OutlinedTextField(option, { value -> options = ArrayList(options).also { it[i] = value.take(65_536) } },
                     label = { Text("Вариант ${i + 1}") }, modifier = Modifier.weight(1f))
             }
@@ -264,18 +265,18 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
                 TextButton(enabled = options.size < QuizLimits.OPTIONS, onClick = { options = ArrayList(options + "") }) { Text("Добавить вариант") }
                 TextButton(enabled = options.size > 2, onClick = {
                     options = ArrayList(options.dropLast(1))
-                    if (correct?.let { it >= options.size } == true) correct = null
+                    correct = correct.filter { it < options.size }.toSet()
                 }) { Text("Убрать последний") }
-                TextButton(onClick = { correct = null }) { Text(if (correct == null) "✓ Без ключа" else "Без ключа") }
+                TextButton(onClick = { correct = emptySet() }) { Text(if (correct.isEmpty()) "✓ Без ключа" else "Без ключа") }
             }
         }
         item { StudyField(explanation, { explanation = it.take(65_536) }, "Пояснение") }
         item { Button(onClick = {
             val changed = question.copy(text = text.trim(), options = options.map(String::trim),
-                correctIndex = correct, additionalCorrectIndices = emptyList(),
+                correctIndex = correct.minOrNull(), additionalCorrectIndices = correct.sorted().drop(1),
                 explanation = explanation.trim().ifBlank { null },
-                evidence = if (correct == null) AnswerEvidence.UNKNOWN
-                    else if (correct != question.correctIndex || text != question.text || options != question.options || confirmed)
+                evidence = if (correct.isEmpty()) AnswerEvidence.UNKNOWN
+                    else if (correct != question.correctIndices.toSet() || text != question.text || options != question.options || confirmed)
                         AnswerEvidence.MANUAL else question.evidence)
             runCatching { EditorRules.validateQuestion(changed) }
                 .onSuccess { onApply(changed) }.onFailure { failure = it.message }

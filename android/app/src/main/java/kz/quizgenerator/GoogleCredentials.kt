@@ -21,6 +21,7 @@ internal object GoogleCredentials {
         require(payload.optString("nonce")==nonce) { "Ответ Google не соответствует запросу" }
         token
     } catch(_: GetCredentialCancellationException) { null }
+      catch(_: androidx.credentials.exceptions.NoCredentialException) { throw IllegalStateException("На устройстве нет доступного Google-аккаунта. Добавьте его в настройках Android или войдите по почте") }
       catch(e: kotlinx.coroutines.CancellationException) { throw e }
       catch(_: Exception) { throw IllegalStateException("Не удалось войти с Google. Повторите попытку или используйте электронную почту") }
     suspend fun clear(context: Context) { runCatching { CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest()) } }

@@ -70,15 +70,16 @@ internal object StudyLogic {
     }
 
 
-    fun complete(id: String, quiz: Quiz, answers: List<Int?>, now: Long): Attempt {
-        val score = QuizScorer.score(quiz, answers)
+    fun complete(id: String, quiz: Quiz, answers: List<Int?>, now: Long): Attempt =
+        completeSelections(id,quiz,answers.map { setOfNotNull(it) },now)
+
+    fun completeSelections(id: String, quiz: Quiz, answers: List<Set<Int>>, now: Long): Attempt {
+        val score = QuizScorer.scoreSelections(quiz, answers)
         val mistakes = quiz.questions.mapIndexedNotNull { index, question ->
             val key = question.correctIndices
-            val correct = key.singleOrNull()
-                ?.takeIf { question.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }
-            if (correct == null || answers[index] == correct) null else Mistake(
-                question.text, answers[index]?.let(question.options::getOrNull),
-                question.options[correct], question.explanation
+            if (!question.evidence.confirmed || key.isEmpty() || answers[index] == key.toSet()) null else Mistake(
+                question.text, answers[index].sorted().joinToString { question.options[it] }.ifEmpty { null },
+                key.joinToString { question.options[it] }, question.explanation
             )
         }
         return Attempt(id, quiz.id, quiz.title, now, score, mistakes)

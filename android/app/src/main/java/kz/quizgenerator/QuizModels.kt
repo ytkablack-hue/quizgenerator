@@ -43,7 +43,9 @@ data class QuizScore(
 
 object QuizScorer {
     /** A question with no verified answer key must never be marked right or wrong. */
-    fun score(quiz: Quiz, answers: List<Int?>): QuizScore {
+    fun score(quiz: Quiz, answers: List<Int?>): QuizScore = scoreSelections(quiz, answers.map { setOfNotNull(it) })
+
+    fun scoreSelections(quiz: Quiz, answers: List<Set<Int>>): QuizScore {
         require(answers.size == quiz.questions.size) { "Ответов должно быть столько же, сколько вопросов" }
         var correct = 0
         var incorrect = 0
@@ -51,13 +53,12 @@ object QuizScorer {
         var ungraded = 0
 
         quiz.questions.forEachIndexed { index, question ->
+            require(answers[index].all { it in question.options.indices }) { "Несуществующий вариант ответа" }
             val key = question.correctIndices
             when {
-                // Multiple-answer questions stay ungraded until the UI can collect a set of answers.
-                key.size != 1 || question.evidence == AnswerEvidence.INFERRED ||
-                    question.evidence == AnswerEvidence.UNKNOWN -> ungraded++
-                answers[index] == null -> skipped++
-                answers[index] == key[0] -> correct++
+                key.isEmpty() || !question.evidence.confirmed -> ungraded++
+                answers[index].isEmpty() -> skipped++
+                answers[index] == key.toSet() -> correct++
                 else -> incorrect++
             }
         }
