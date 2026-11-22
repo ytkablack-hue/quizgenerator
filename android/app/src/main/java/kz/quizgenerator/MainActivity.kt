@@ -385,7 +385,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     Page.SETTINGS -> StudyPreferences(study.settings, { update(study.copy(settings = it)) }, ::goBack, { accountReturn = page; page = Page.ACCOUNT })
                     Page.ACCOUNT -> AccountScreen(::goBack,quizzes.filter(repository::canDelete),study,{settingsReturn=Page.ACCOUNT;page=Page.SETTINGS},onExportData)
                     Page.AI -> AiScreen(study.settings, study.attempts.firstOrNull { it.id == aiAttemptId } ?: study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
-                        repository::readStudyMaterial, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
+                        repository, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
                         saveCards = { update(study.copy(cards = study.cards + it)) }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask)
                     Page.EDITOR -> editor.draft?.let { draft ->
                         DraftScreen(draft,

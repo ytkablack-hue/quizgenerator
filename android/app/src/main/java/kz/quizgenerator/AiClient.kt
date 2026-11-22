@@ -32,19 +32,17 @@ internal class AiClient(private val settings: StudySettings, private val authTok
         require(result.length() == count) { "Сервер вернул неполный набор карточек" }
         val cards = List(result.length()) {
             val item = result.getJSONObject(it)
-            Flashcard(UUID.randomUUID().toString(), item.getString("front").trim(), item.getString("back").trim(), true)
+            Flashcard(UUID.randomUUID().toString(), item.getString("front").trim(), item.getString("back").trim(), true,evidence=AnswerEvidence.CLOUD_AI)
         }
         require(cards.all { it.front.isNotBlank() && it.back.isNotBlank() }) { "В наборе есть пустая карточка" }
         return cards
     }
 
     suspend fun review(attempt: Attempt): AiReview {
-        val material = buildString {
-            appendLine(attempt.title)
-            attempt.mistakes.forEach {
-                appendLine("${it.question} — ответ: ${it.given ?: "пропущен"}; верно: ${it.correct}. ${it.explanation.orEmpty()}")
-            }
-        }.take(12_000)
+        return reviewMaterial(reviewText(attempt))
+    }
+
+    suspend fun reviewMaterial(material: String): AiReview {
         val result = request("review", JSONObject().put("material", material))
         val steps = result.getJSONArray("nextSteps")
         return AiReview(result.getString("summary"), List(steps.length(), steps::getString))
@@ -55,10 +53,13 @@ internal class AiClient(private val settings: StudySettings, private val authTok
             .put("difficulty", difficulty).put("count", count)
 
     private suspend fun request(route: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+        if(body!=null)AiRequestRules.validate(route,body)
         val base = baseUri(endpoint)
         val token = authToken()
         val url = URI.create(base.toString().trimEnd('/') + "/api/v1/ai/$route").toURL()
         val connection = url.openConnection() as HttpURLConnection
+        kotlinx.coroutines.suspendCancellableCoroutine<JSONObject> {pending ->
+        pending.invokeOnCancellation {connection.disconnect()}
         try {
             connection.connectTimeout = 8000
             connection.readTimeout = 35000
@@ -97,13 +98,18 @@ internal class AiClient(private val settings: StudySettings, private val authTok
                     else -> detail?.ifBlank { null } ?: "Сервер вернул ошибку $status"
                 })
             }
-            JSONObject(data)
-        } finally {
+            if(pending.isActive)pending.resumeWith(Result.success(JSONObject(data)))
+        } catch(e: Exception) {if(pending.isActive)pending.resumeWith(Result.failure(e))} finally {
             connection.disconnect()
+        }
         }
     }
 
     companion object {
+        internal fun reviewText(attempt: Attempt): String = buildString {
+            appendLine(attempt.title)
+            attempt.mistakes.forEach {appendLine(it.question+" — ответ: "+(it.given ?: "пропущен")+"; верно: "+it.correct+". "+it.explanation.orEmpty())}
+        }
         internal fun baseUri(value: String): URI {
             val uri = runCatching { URI(value.trim()) }.getOrNull()
             require(uri != null && uri.host != null && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
