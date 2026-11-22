@@ -43,7 +43,7 @@ internal class MaterialStore(private val accountRoot: File) {
         return bytes.toString(Charsets.UTF_8).also {require(it.length==record.characters)}
     }
     fun import(name: String,format: String,input: InputStream,checkCancelled: ()->Unit={},
-        extract: (File)->MaterialText): MaterialRecord {
+        copied: (Long)->Unit={},extract: (File)->MaterialText): MaterialRecord {
         require(format in FORMATS) {"Выберите TXT, DOCX, PDF, JSON, JPG или PNG"}
         check(root.isDirectory || root.mkdirs()) {"Не удалось создать хранилище материалов"}
         require(root.listFiles().orEmpty().count {it.isDirectory && validId(it.name)}<5000) {"Слишком много документов"}
@@ -54,7 +54,7 @@ internal class MaterialStore(private val accountRoot: File) {
             val source=File(staging,"source.bin");var bytes=0L
             source.outputStream().buffered().use {out ->
                 val block=ByteArray(32*1024)
-                while(true) {checkCancelled();val n=input.read(block);if(n<0)break;bytes+=n;require(bytes<=MAX_SOURCE) {"Документ больше 64 МБ"};out.write(block,0,n)}
+                while(true) {checkCancelled();val n=input.read(block);if(n<0)break;bytes+=n;require(bytes<=MAX_SOURCE) {"Документ больше 64 МБ"};out.write(block,0,n);copied(bytes)}
             }
             require(bytes>0) {"Выбран пустой файл"}
             checkCancelled()

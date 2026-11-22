@@ -8,12 +8,18 @@ internal data class ActiveAttempt(val quiz: Quiz, val answers: List<Int?>, val i
     val attemptId: String, val elapsedDeadline: Long, val wallDeadline: Long, val bootCount: Int, val selections: List<Set<Int>>? = null)
 
 internal class ActiveAttemptStore(private val file: File) {
-    fun save(value: ActiveAttempt) {
+    private class State {val lock=Any();val generation=java.util.concurrent.atomic.AtomicLong()}
+    private val state=states.computeIfAbsent(file.canonicalPath){State()}
+    fun ticket(): Long=state.generation.get()
+    fun save(value: ActiveAttempt,ticket: Long=this.ticket(),checkCancelled: ()->Unit={}): Boolean = synchronized(state.lock) {
+        checkCancelled()
+        if(ticket!=state.generation.get())return@synchronized false
         atomicWrite(file, JSONObject().put("quiz", JSONObject(QuizJson.serialize(value.quiz)))
             .put("answers", JSONArray(value.answers.map { it ?: JSONObject.NULL }))
             .put("selections",value.selections?.let { JSONArray(it.map { set -> JSONArray(set.sorted()) }) }).put("index", value.index)
             .put("attemptId", value.attemptId).put("elapsedDeadline", value.elapsedDeadline)
             .put("wallDeadline", value.wallDeadline).put("bootCount", value.bootCount).toString())
+        true
     }
     fun load(): ActiveAttempt? {
         if (!file.exists()) return null
@@ -35,5 +41,6 @@ internal class ActiveAttemptStore(private val file: File) {
         val index = root.getInt("index").also { require(it in quiz.questions.indices) }
         return ActiveAttempt(quiz, answers, index, root.getString("attemptId"), root.getLong("elapsedDeadline"), root.getLong("wallDeadline"), root.getInt("bootCount"),selections)
     }
-    fun clear() { check(!file.exists() || file.delete()) { "Не удалось закрыть попытку" } }
+    fun clear() {state.generation.incrementAndGet();synchronized(state.lock){check(!file.exists() || file.delete()) {"Не удалось закрыть попытку"}}}
+    private companion object {val states=java.util.concurrent.ConcurrentHashMap<String,State>()}
 }

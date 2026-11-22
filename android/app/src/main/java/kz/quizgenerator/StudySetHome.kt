@@ -52,6 +52,7 @@ import kotlinx.coroutines.*
         if(all.any {it.archived} || trash)item {TextButton(onClick={trash=!trash}) {Text(if(trash)"Вернуться к наборам" else "Корзина · "+all.count {it.archived})}}
         if(state==null)item {StudyLoading("Открываем библиотеку")}
         state?.exceptionOrNull()?.let {item {StudyError(it.message ?: "Не удалось открыть библиотеку наборов");TextButton(onClick={revision++}){Text("Повторить")};TextButton(onClick=onLegacy){Text("Открыть сохранённые тесты")}}}
+        repository.libraryWarnings.forEach {warning->item {StudyError(warning)}}
         error?.let {item {StudyError(it)}}
         if(state?.isSuccess==true && shown.isEmpty())item {StudyPanel(tone=PanelTone.SKY) {
             StudyIcon(Glyph.LIBRARY)

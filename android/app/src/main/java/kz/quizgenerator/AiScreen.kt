@@ -2,6 +2,8 @@ package kz.quizgenerator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -12,7 +14,7 @@ import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
 
 private enum class AiTask(val title: String) {QUIZ("Тест"),CARDS("Карточки"),REVIEW("Ошибки")}
-private data class GenerationRequest(val task: AiTask,val topic: String,val material: String,val difficulty: String,val count: Int)
+private data class GenerationRequest(val task: AiTask,val topic: String,val material: String,val difficulty: String,val count: Int,val series: String,val part: Int,val total: Int,val wholePart: Boolean)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun AiScreen(settings: StudySettings,attempt: Attempt?,repository: QuizRepository,
@@ -46,6 +48,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     val parts=if(mode==AiTask.REVIEW)reviewParts else model.parts
     val selected=parts.getOrNull(draft.part.coerceAtMost((parts.size-1).coerceAtLeast(0)))
     val full=if(mode==AiTask.REVIEW)reviewText else model.text
+    val series=MaterialSeries.key(if(mode==AiTask.REVIEW)attempt?.id.orEmpty() else draft.sourceId ?: "manual",mode.name,draft.topic,draft.extra,draft.difficulty,draft.count)
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri->if(uri!=null)model.attach(uri,studySetId)}
     fun prepare() {
         try {
@@ -62,28 +65,37 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
             } else selected?.text(full).orEmpty()
             val material=MaterialSlices.compose(body,if(mode==AiTask.REVIEW)"" else draft.extra)
             require(material.isNotBlank() || draft.topic.isNotBlank()) {"Добавьте тему или материал"}
-            pending=GenerationRequest(mode,if(mode==AiTask.REVIEW)"" else draft.topic,material,draft.difficulty,draft.count.toIntOrNull() ?: 0)
+            pending=GenerationRequest(mode,if(mode==AiTask.REVIEW)"" else draft.topic,material,draft.difficulty,draft.count.toIntOrNull() ?: 0,series,parts.indexOf(selected),parts.size,selected!=null && !selected.oversized)
         } catch(e: Exception) {failure=e.message ?: "Проверьте выбранный фрагмент"}
     }
-    pending?.let {request -> StudyConfirmation("Отправить выбранный материал?",
-        "Будет выполнен 1 запрос через Cloudflare в Gemini: "+request.material.length+" символов. "+
-        (if(parts.size>1)"Документ охвачен частично: выбрана одна часть из "+parts.size+". Остальные части автоматически не отправляются. " else "")+
-        "Проверьте, что материал разрешено передавать в облако.","Отправить",{pending=null}) {
+    pending?.let {request ->
+        var preview by remember(request) {mutableStateOf(false)}
+        AlertDialog(onDismissRequest={pending=null},title={Text("Отправить один запрос?")},text={
+            Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Через Cloudflare в Gemini будет передано "+request.material.length+" символов. Остальные части автоматически не отправляются.")
+                if(request.total>0)Text("Выбрана часть "+(request.part+1)+" из "+request.total+". Охват документа частичный.")
+                record?.notice?.takeIf {it.isNotBlank()}?.let {Text(it)}
+                Text("Не отправляйте конфиденциальные материалы без права передачи.")
+                TextButton(onClick={preview=!preview}){Text(if(preview)"Скрыть текст" else "Посмотреть точный текст запроса")}
+                if(preview)androidx.compose.foundation.text.selection.SelectionContainer {Text(request.material.ifBlank {request.topic})}
+            }
+        },dismissButton={TextButton(onClick={pending=null}){Text("Отмена")}},confirmButton={TextButton(onClick={
         pending=null;failure=null;notice=null
         job=scope.launch {
             try {
                 when(request.task) {
-                    AiTask.QUIZ -> saveQuiz(client.quiz(request.topic,request.material,request.difficulty,request.count))
-                    AiTask.CARDS -> model.pendingCards=client.cards(request.topic,request.material,request.difficulty,request.count)
-                    AiTask.REVIEW -> review=client.reviewMaterial(request.material)
+                    AiTask.QUIZ -> {val quiz=client.quiz(request.topic,request.material,request.difficulty,request.count);if(request.wholePart)model.completed(request.series,request.part);saveQuiz(quiz)}
+                    AiTask.CARDS -> {model.pendingCards=client.cards(request.topic,request.material,request.difficulty,request.count);if(request.wholePart)model.completed(request.series,request.part)}
+                    AiTask.REVIEW -> {review=client.reviewMaterial(request.material);if(request.wholePart)model.completed(request.series,request.part)}
                 }
-                notice="Выбранный фрагмент обработан. Для другого фрагмента выберите его и отправьте отдельный запрос"
+                notice=if(request.wholePart)"Получен ответ для части "+(request.part+1)+" из "+request.total+". Остальные части не отправлялись" else "Получен ответ для выбранного диапазона или темы; это не полный охват документа"
             } catch(e: CancellationException){throw e}
               catch(_: java.io.IOException){failure="Нет соединения. Документы сохранены локально; повторите запрос позже"}
               catch(e: Exception){failure=e.message?.take(200) ?: "Не удалось выполнить запрос"}
             finally {job=null}
         }
-    }}
+        }){Text("Отправить")}})
+    }
     if(viewer && record!=null && model.text.isNotEmpty())MaterialViewer(record,model.text,draft.previewPage,
         {model.update(model.draft.copy(previewPage=it))},{viewer=false},sourceFile=repository.materials.source(record.id))
     StudyColumn("Учиться с ИИ",onBack) {
@@ -114,6 +126,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         } else Text(attempt?.let {"Разбор ошибок: "+it.title} ?: "Сначала завершите тест с ошибками")
         if(parts.isNotEmpty())StudyPanel(tone=PanelTone.SKY) {
             Text("Выбран фрагмент "+(parts.indexOf(selected)+1)+" из "+parts.size+" · всего "+full.length+" символов")
+            Text("Получен ответ для "+draft.completed[series].orEmpty().count {it in parts.indices}+" из "+parts.size+" частей при текущих настройках")
             Text("На отправку: "+(selected?.let {it.end-it.start} ?: 0)+" символов. Полный документ сохранён; автоматической отправки всех частей нет.")
             Row {TextButton(enabled=!busy && draft.part>0,onClick={model.update(draft.copy(part=draft.part-1))}){Text("Предыдущий")};TextButton(enabled=!busy && draft.part+1<parts.size,onClick={model.update(draft.copy(part=draft.part+1))}){Text("Следующий")}}
             if(selected?.oversized==true) {
@@ -130,7 +143,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
             Button(onClick={if(saveCards(model.pendingCards)){model.pendingCards=emptyList();notice="Карточки сохранены"}}) {Text("Сохранить карточки")}
         }
         review?.let {Text(it.summary);it.steps.forEach {step->Text("• "+step)}}
-        model.progress?.let {StudyLoading("Загрузка и извлечение текста: "+it.document.name,it.fraction,model::cancel)}
+        model.progress?.let {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}
         if(busy)StudyLoading("Генерация выбранного материала",cancel={job?.cancel();notice="Запрос отменён на устройстве. Если сервер уже начал обработку, запрос может учитываться в квоте"})
         model.error?.let {StudyError(it)};failure?.let {StudyError(it)};notice?.let {Text(it)}
     }

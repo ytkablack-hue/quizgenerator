@@ -129,40 +129,38 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ResultsScreen(quiz: Quiz, answers: List<Set<Int>>, expired: Boolean, showAnswers: Boolean,
-                           repeat: () -> Unit, library: () -> Unit) {
-    val score = QuizScorer.scoreSelections(quiz, answers)
-    val percent = if (score.gradedTotal > 0) (100f * score.correct / score.gradedTotal).roundToInt() else null
-    val missed = quiz.questions.indices.filter { quiz.questions[it].correctIndices.isNotEmpty() && quiz.questions[it].evidence.confirmed && answers[it] != quiz.questions[it].correctIndices.toSet() }
+internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,showAnswers: Boolean,
+    repeat: ()->Unit,library: ()->Unit,repeatMistakes: (() -> Unit)?=null) {
+    val score=QuizScorer.scoreSelections(quiz,answers)
+    val percent=if(score.gradedTotal>0)(100f*score.correct/score.gradedTotal).roundToInt() else null
+    var errorsOnly by rememberSaveable(quiz.id) {mutableStateOf(false)}
+    val results=quiz.questions.indices.filter {i->!errorsOnly || StudyResultRules.outcome(quiz.questions[i],answers[i]) in setOf(QuestionOutcome.INCORRECT,QuestionOutcome.SKIPPED)}
     ScreenList {
-        item { SectionHeading("Результат", quiz.title) }
-        item {
-            StudyPanel(tone = PanelTone.LAVENDER) {
-                Text(percent?.let { "$it%" } ?: "Нет оцениваемых вопросов", style = MaterialTheme.typography.headlineMedium)
-                Text("Правильных ответов: ${score.correct} из ${score.gradedTotal}")
-                percent?.let { LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth()) }
-                Text("Ошибок: ${score.incorrect} · Пропущено: ${score.skipped}")
-                if (score.ungraded > 0) Text("Без подтверждённого ключа: ${score.ungraded}")
-                if (expired) Text("Время вышло. Тест завершён автоматически.")
-            }
-        }
-        item {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = repeat) { Text("Повторить тест") }
-                OutlinedButton(onClick = library) { Text("Вернуться в библиотеку") }
-            }
-        }
-        item { SectionHeading("Работа над ошибками") }
-        if (missed.isEmpty()) item { StudyPanel(tone = PanelTone.SKY) { Text("Среди оцениваемых вопросов нет ошибок или пропусков.") } }
-        items(missed, key = { quiz.questions[it].id }) { index ->
-            val question = quiz.questions[index]
-            StudyPanel {
-                Text(question.text, style = MaterialTheme.typography.titleMedium)
-                Text("Твой ответ · ${answers[index].sorted().joinToString { question.options[it] }.ifEmpty { "Пропущен" }}")
-                if (showAnswers) {
-                    if (question.correctIndices.isNotEmpty()) Text("Правильный ответ · " +
-                        question.correctIndices.joinToString { question.options[it] })
-                    question.explanation?.let { Text(it) }
+        item {SectionHeading("Результат",quiz.title)}
+        item {StudyPanel(tone=PanelTone.SKY) {
+            Text(percent?.let {it.toString()+"%"} ?: "Нет оцениваемых вопросов",style=MaterialTheme.typography.headlineMedium)
+            Text("Верно: "+score.correct+" · Ошибок: "+score.incorrect+" · Пропущено: "+score.skipped)
+            Text("Без подтверждённого ключа: "+score.ungraded)
+            percent?.let {LinearProgressIndicator(progress={it/100f},modifier=Modifier.fillMaxWidth())}
+            if(expired)Text("Время вышло. Тест завершён автоматически, ответы сохранены.")
+        }}
+        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            Button(onClick=repeat){Text("Повторить тест")}
+            if(repeatMistakes!=null && score.incorrect+score.skipped>0)OutlinedButton(onClick=repeatMistakes){Text("Повторить ошибки")}
+            TextButton(onClick=library){Text("Вернуться к материалам")}
+        }}
+        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {FilterChip(!errorsOnly,{errorsOnly=false},label={Text("Все вопросы")});FilterChip(errorsOnly,{errorsOnly=true},label={Text("Ошибки и пропуски")})}}
+        if(results.isEmpty())item {StudyPanel {Text("Среди оцениваемых вопросов нет ошибок и пропусков.")}}
+        items(results,key={quiz.questions[it].id}) {index->
+            val q=quiz.questions[index];val outcome=StudyResultRules.outcome(q,answers[index])
+            StudyPanel(tone=if(outcome==QuestionOutcome.CORRECT)PanelTone.SKY else PanelTone.PLAIN) {
+                Text("Вопрос "+(index+1)+" · "+outcome.label,style=MaterialTheme.typography.labelLarge)
+                Text(q.text,style=MaterialTheme.typography.titleMedium)
+                Text("Ваш ответ: "+answers[index].sorted().joinToString {q.options[it]}.ifBlank {"Не выбран"})
+                if(showAnswers && q.correctIndices.isNotEmpty()) {
+                    Text((if(q.evidence.confirmed)"Подтверждённый ключ: " else "Предположение, не ключ: ")+q.correctIndices.joinToString {q.options[it]})
+                    Text(q.evidence.label)
+                    q.explanation?.let {Text(it)}
                 }
             }
         }

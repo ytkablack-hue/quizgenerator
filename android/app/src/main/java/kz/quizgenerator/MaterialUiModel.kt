@@ -61,7 +61,7 @@ internal class MaterialUiModel: ViewModel() {
         if(!ready || attaching?.isActive==true)return
         attaching=work.launch {
             try {
-                error=null;progress=ImportProgress(DocumentDetails("Документ",null),null)
+                error=null;progress=ImportProgress(DocumentDetails("Документ",null),null,"Загрузка документа")
                 val worker=currentCoroutineContext()
                 val saved=withContext(Dispatchers.IO) {requireNotNull(repo).attachMaterial(uri) {worker.ensureActive();progress=it}}
                 records=listOf(saved)+records
@@ -72,6 +72,12 @@ internal class MaterialUiModel: ViewModel() {
               catch(e: Exception){error=if(e is IllegalArgumentException)e.message else "Не удалось прочитать документ. Проверьте формат и свободное место"}
             finally {progress=null}
         }
+    }
+    fun completed(context: String,part: Int) {
+        val values=(draft.completed[context].orEmpty()+part).distinct()
+        val next=draft.completed+(context to values)
+        if(next.size>100 || next.values.sumOf {it.size}>10000) {error="Ответ получен, но история фрагментов заполнена";return}
+        update(draft.copy(completed=next))
     }
     fun cancel() {attaching?.cancel()}
     override fun onCleared() {work.cancel()}

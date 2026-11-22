@@ -12,8 +12,8 @@ android {
         applicationId = "kz.quizgenerator"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.5.0-beta"
+        versionCode = 8
+        versionName = "0.6.0-beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

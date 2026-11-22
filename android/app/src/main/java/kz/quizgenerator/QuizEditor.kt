@@ -90,7 +90,7 @@ internal class EditorModel : ViewModel() {
                     }) { info ->
                         worker.ensureActive()
                         val next = info.fraction?.let { (it * 100).toInt() }
-                        if (next != percent) { percent = next; load = info }
+                        if (next != percent || load?.phase!=info.phase) { percent = next; load = info }
                     }
                 }
             } catch (error: CancellationException) {

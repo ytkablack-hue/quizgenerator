@@ -89,17 +89,21 @@ fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit
                      onDelete: (String) -> Unit, onRate: (String, String) -> Boolean, embedded: Boolean = false) {
     var index by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
+    var reviewed by rememberSaveable {mutableStateOf<List<String>>(emptyList())}
     val actual = index.coerceIn(0, cards.lastIndex.coerceAtLeast(0))
     val card = cards.getOrNull(actual)
+    val finished=CardSessionRules.completed(cards.map {it.id},reviewed)
     SteamPage("Карточки", onBack, showHeader=!embedded) {
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 16.dp)) {
             item { SteamHeading("Повторение", "Карточка ${if (card == null) 0 else actual + 1} из ${cards.size}") }
-            if (card != null) {
+            item {Text("Повторено в занятии: "+CardSessionRules.count(cards.map {it.id},reviewed)+" из "+cards.size)}
+            if(finished) item {SteamCard {Text("Занятие завершено",style=MaterialTheme.typography.headlineSmall);Text("Все карточки этого набора повторены. Оценки сохранены.");SteamButton("Ещё один круг",onClick={reviewed=emptyList();index=0;flipped=false});SteamButton("Вернуться к набору",tone=SteamTone.PALE,onClick=onBack)}}
+            else if (card != null) {
                 item { SteamCard(Modifier.clickable { flipped = !flipped }) {
                     Text(if (flipped) "Обратная сторона" else "Лицевая сторона", color = SteamBlue)
-                    Box(Modifier.fillMaxWidth().heightIn(min = 140.dp).padding(8.dp), contentAlignment = Alignment.Center) {
-                        Text(if (flipped) card.back else card.front, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Box(Modifier.fillMaxWidth().heightIn(min = 200.dp).padding(8.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.animation.Crossfade(targetState=flipped,label="card-side") {back->Text(if(back)card.back else card.front, style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)}
                     }
                     Text(card.evidence, color = SteamMuted)
                     Text("Повторений: ${card.reviews}", color = SteamMuted)
@@ -109,9 +113,10 @@ fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit
                         onClick = { flipped = !flipped })
                     Text("Насколько легко было вспомнить?", color = SteamMuted)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Повторить" to "hard", "Средне" to "medium", "Знаю" to "easy").forEach { (label, rating) ->
+                        listOf("Сложно" to "hard", "Средне" to "medium", "Легко" to "easy").forEach { (label, rating) ->
                             Button(enabled = flipped, onClick = {
-                                if (onRate(card.id, rating)) { index = (actual + 1).mod(cards.size); flipped = false }
+                                val saved=onRate(card.id,rating);reviewed=CardSessionRules.afterSave(reviewed,card.id,saved)
+                                if(saved){index=if(actual<cards.lastIndex)actual+1 else cards.indexOfFirst {it.id !in reviewed}.coerceAtLeast(0);flipped=false}
                             }) { Text(label) }
                         }
                     }

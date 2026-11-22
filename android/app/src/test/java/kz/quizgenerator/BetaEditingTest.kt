@@ -27,6 +27,9 @@ class BetaEditingTest {
         val switched = previous.copy(settings = previous.settings.copy(dark = false, theme = "light"))
         store.save(switched)
         assertEquals(switched, StudyStore(file).load())
-        assertEquals("system", StudyStore(temporary.root.resolve("fresh.json")).load().settings.theme)
+        assertEquals("light", StudyStore(temporary.root.resolve("fresh.json")).load().settings.theme)
+        file.writeText("""{"settings":{"dark":false,"minutes":15}}""")
+        assertEquals("system", StudyStore(file).load().settings.theme)
+        assertEquals(15, StudyStore(file).load().settings.minutes)
     }
 }

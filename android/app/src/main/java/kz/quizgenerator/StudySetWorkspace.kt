@@ -20,7 +20,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
 @OptIn(ExperimentalMaterial3Api::class,ExperimentalLayoutApi::class)
 @Composable internal fun StudySetWorkspace(id: String,repository: QuizRepository,quizzes: List<Quiz>,study: StudyData,
     update: (StudyData)->Boolean,onBack: ()->Unit,onQuiz: (Quiz)->Unit,onEdit: (Quiz?)->Unit,onAi: (String)->Unit,
-    onCardsFromQuiz: (Quiz)->Unit,onImportQuiz: (Quiz)->Unit,onExport: (StudySet)->Unit,onOwnText: ()->Unit) {
+    onCardsFromQuiz: (Quiz)->Unit,onImportQuiz: (Quiz)->Unit,onOptions: ()->Unit,onExport: (StudySet)->Unit,onOwnText: ()->Unit) {
     val auth=LocalAuth.current;val context=LocalContext.current;val scope=rememberCoroutineScope()
     val model=remember(auth.account?.uid) {ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java)}
     LaunchedEffect(repository){model.bind(repository)}
@@ -65,7 +65,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                 when(tab) {
                     SetTab.MATERIAL -> ScreenList {
                         item {Button(enabled=model.ready && model.progress==null,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Text("Добавить документ или фото")}}
-                        model.progress?.let {item {StudyLoading("Загрузка и извлечение текста: "+it.document.name,it.fraction,model::cancel)}}
+                        model.progress?.let {item {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}}
                         model.error?.let {item {StudyError(it)}}
                         if(set.materialIds.isEmpty())item {StudyPanel(tone=PanelTone.SKY) {StudyIcon(Glyph.FILE);Text("Здесь будет исходный материал");Text("Сохраните полный документ локально. Готовые вопросы можно открыть без Gemini.")}}
                         items(model.records.filter {it.id in set.materialIds},key={it.id}) {record->StudyPanel {
@@ -88,6 +88,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                     }
                     SetTab.TEST -> ScreenList {
                         item {SectionHeading("Выберите способ подготовки","Существующие вопросы открываются локально; облако — только по отдельному подтверждению")}
+                        item {MethodCard("Параметры прохождения","Общие настройки: таймер, перемешивание и число вопросов",Glyph.SETTINGS,onOptions)}
                         item {MethodCard("Создать тест с ИИ","Выберите материал, фрагмент, сложность и количество вопросов",Glyph.AI){onAi("quizzes")}}
                         item {MethodCard("Создать вопросы вручную","Один или несколько правильных вариантов, без интернета",Glyph.EDIT){onEdit(null)}}
                         if(banks.isEmpty())item {StudyPanel {Text("В наборе пока нет готовых вопросов. Откройте их из документа на вкладке «Материал» или создайте вручную.")}}

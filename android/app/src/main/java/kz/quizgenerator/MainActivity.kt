@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.util.UUID
 
@@ -129,7 +130,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                           activeStore: ActiveAttemptStore, bootCount: Int, update: (StudyData) -> Boolean, storageError: String?, initialQuizzes: List<Quiz>, restoredAttempt: Result<ActiveAttempt?>, onExportData: () -> Unit) {
     var quizzes by remember { mutableStateOf(initialQuizzes) }
     val restoreResult = remember { restoredAttempt }
-    val restored = restoreResult.getOrNull()
+    val restored = restoreResult.getOrNull()?.takeUnless {snapshot->study.attempts.any {it.id==snapshot.attemptId}}
     val screenStates = rememberSaveableStateHolder()
     var sessionQuiz by remember { mutableStateOf(restored?.quiz) }
     var wallDeadline by rememberSaveable { mutableLongStateOf(restored?.wallDeadline ?: 0L) }
@@ -161,6 +162,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     val bankPrepared = remember(currentQuiz, study.settings, seed) { currentQuiz?.let { StudyLogic.prepare(it, study.settings, seed) } }
     val prepared = sessionQuiz ?: bankPrepared
 
+    var draftSaving by remember {mutableStateOf(false)}
     var draftError by rememberSaveable { mutableStateOf<String?>(null) }
     var libraryError by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -226,8 +228,11 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
 
     LaunchedEffect(page, prepared, answers, selections, questionIndex, deadline) {
         if (page == Page.QUIZ && prepared != null && selections.size == prepared.questions.size && answers.size == prepared.questions.size) {
-            runCatching { activeStore.save(ActiveAttempt(prepared, answers, questionIndex, attemptId, deadline, wallDeadline, bootCount,selections)) }
-                .onFailure { libraryError = "Не удалось сохранить текущие ответы" }
+            val snapshot=ActiveAttempt(prepared,answers,questionIndex,attemptId,deadline,wallDeadline,bootCount,selections)
+            val ticket=activeStore.ticket()
+            val savingWorker=kotlin.coroutines.coroutineContext
+            runCatching {kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){activeStore.save(snapshot,ticket){savingWorker.ensureActive()}}}
+                .onFailure { if(it is kotlinx.coroutines.CancellationException) throw it; libraryError = "Не удалось сохранить текущие ответы" }
         }
     }
     val finishLatest by rememberUpdatedState(::finish)
@@ -277,6 +282,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     }
 
     BackHandler(page != Page.HOME && page != Page.QUESTION) { goBack() }
+    BackHandler(draftSaving) {}
 
     when (confirmation) {
         Confirmation.DISCARD_DRAFT -> StudyConfirmation("Отменить правки теста?",
@@ -373,7 +379,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         onQuiz={openQuiz(it);quizSetReturn=true},onEdit={bank->openDraft(QuizDraft(bank ?: emptyQuiz(),original=bank),Page.WORKSPACE)},
                         onAi={aiTask=it;aiAttemptId=study.attempts.lastOrNull {a->a.mistakes.isNotEmpty()}?.id;page=Page.AI},
                         onCardsFromQuiz={openQuiz(it);quizSetReturn=true;page=Page.WORKSPACE;showCardCreation=true},
-                        onImportQuiz={openDraft(QuizDraft(it),Page.WORKSPACE)},onExport=exportSet,
+                        onImportQuiz={openDraft(QuizDraft(it),Page.WORKSPACE)},onOptions={settingsReturn=Page.WORKSPACE;page=Page.SETTINGS},onExport=exportSet,
                         onOwnText={creationSource=CreationSource.TEXT;page=Page.SOURCE})}}
 
                     Page.SOURCE -> {
@@ -404,24 +410,29 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         repository, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
                         saveCards = { cards ->val ok=update(study.copy(cards=study.cards+cards));if(ok && activeSetId!=null)runCatching {repository.sets.linkCards(activeSetId!!,cards.map {it.id})}.onFailure {libraryError="Карточки сохранены, но не прикреплены к набору"};ok }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask,studySetId=activeSetId)
                     Page.EDITOR -> editor.draft?.let { draft ->
-                        DraftScreen(draft,
+                        if(draftSaving)StudyLoading("Сохранение теста") else DraftScreen(draft,
                             { editor.draft = draft.copy(quiz = it); draftError = null },
                             { index ->
                                 editor.fields = QuestionFields(draft.quiz.questions.getOrNull(index) ?: emptyQuestion())
                                 page = Page.QUESTION
                             }, ::goBack, {
-                                runCatching {
-                                    val trimmed = draft.quiz.copy(title = draft.quiz.title.trim())
-                                    EditorRules.validate(trimmed.title, trimmed.questions)
-                                    if (draft.original == null) repository.addQuiz(trimmed) else repository.saveQuiz(trimmed)
-                                }.onSuccess {
-                                    if(activeSetId!=null)runCatching {repository.sets.linkQuiz(activeSetId!!,it.id)}.onFailure {libraryError="Тест сохранён в библиотеке, но не прикреплён к набору"}
-                                    quizzes = repository.listQuizzes()
-                                    editor.draft = null
-                                    openQuiz(it)
-                                    quizSetReturn=activeSetId!=null
-                                    scope.launch { snackbar.showSnackbar("Тест сохранён") }
-                                }.onFailure { draftError = it.message ?: "Не удалось сохранить тест" }
+                                if(!draftSaving) {
+                                    draftSaving=true;draftError=null
+                                    val ownerSet=activeSetId
+                                    scope.launch {
+                                        try {
+                                            val saved=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                val trimmed=draft.quiz.copy(title=draft.quiz.title.trim());EditorRules.validate(trimmed.title,trimmed.questions)
+                                                if(draft.original==null)repository.addQuiz(trimmed) else repository.saveQuiz(trimmed)
+                                            }
+                                            var linkError=false
+                                            if(ownerSet!=null)try {kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){repository.sets.linkQuiz(ownerSet,saved.id)}}catch(e: kotlinx.coroutines.CancellationException){throw e}catch(_: Exception){linkError=true}
+                                            quizzes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){repository.listQuizzes()}
+                                            editor.draft=null;openQuiz(saved);quizSetReturn=ownerSet!=null;draftSaving=false
+                                            scope.launch {snackbar.showSnackbar(if(linkError)"Тест сохранён в библиотеке; связь с набором не записана" else "Тест сохранён")}
+                                        }catch(e: kotlinx.coroutines.CancellationException){throw e}catch(e: Exception){draftError=e.message ?: "Не удалось сохранить тест"}finally{draftSaving=false}
+                                    }
+                                }
                             }, draftError, { ImportEncodingControls(editor, repository) })
                     }
                     Page.QUESTION -> editor.draft?.let { draft ->
@@ -456,7 +467,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                             }, { confirmation = Confirmation.FINISH_QUIZ })
                     }
                     Page.RESULTS -> prepared?.takeIf { answers.size == it.questions.size }?.let {
-                        ResultsScreen(it, selections, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack)
+                        ResultsScreen(it, selections, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack,repeatMistakes={StudyResultRules.mistakes(it,selections)?.let(::start)})
                     }
                 }
                 }

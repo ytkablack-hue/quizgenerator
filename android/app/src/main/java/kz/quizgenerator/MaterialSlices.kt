@@ -53,19 +53,23 @@ internal object MaterialSlices {
 }
 
 internal data class AiDraft(val sourceId: String?=null,val topic: String="",val extra: String="",val part: Int=0,
-    val difficulty: String="medium",val count: String="5",val previewPage: Int=0)
+    val difficulty: String="medium",val count: String="5",val previewPage: Int=0,val completed: Map<String,List<Int>> = emptyMap())
 internal class AiDraftStore(private val file: File) {
     fun load(): AiDraft {
         if(!file.exists())return AiDraft()
-        require(file.length()<=32768) {"Повреждены настройки материала. Документы сохранены"}
-        val r=JSONObject(file.readText());return AiDraft(r.opt("sourceId") as? String,r.optString("topic"),r.optString("extra"),
-            r.optInt("part"),r.optString("difficulty","medium"),r.optString("count","5"),r.optInt("previewPage")).also(::validate)
+        require(file.length()<=262144) {"Повреждены настройки материала. Документы сохранены"}
+        val r=JSONObject(file.readText());val runs=r.optJSONObject("completed") ?: JSONObject();require(runs.length()<=100)
+        val completed=runs.keys().asSequence().associateWith {key->val a=runs.getJSONArray(key);require(a.length()<=5000);List(a.length()){i->val n=a.get(i);require(n is Number && n.toDouble()==n.toInt().toDouble());n.toInt()}}
+        return AiDraft(r.opt("sourceId") as? String,r.optString("topic"),r.optString("extra"),
+            r.optInt("part"),r.optString("difficulty","medium"),r.optString("count","5"),r.optInt("previewPage"),completed).also(::validate)
     }
     fun save(value: AiDraft) {validate(value);atomicWrite(file,JSONObject().put("version",1).put("sourceId",value.sourceId)
         .put("topic",value.topic).put("extra",value.extra).put("part",value.part).put("difficulty",value.difficulty)
-        .put("count",value.count).put("previewPage",value.previewPage).toString())}
+        .put("count",value.count).put("previewPage",value.previewPage).put("completed",JSONObject(value.completed.mapValues {org.json.JSONArray(it.value)})).toString())}
     private fun validate(value: AiDraft) {
         require(value.sourceId==null || runCatching {java.util.UUID.fromString(value.sourceId).toString()==value.sourceId}.getOrDefault(false))
+        require(value.completed.size<=100 && value.completed.values.sumOf {it.size}<=10000) {"История фрагментов заполнена. Результат сохранён, но прогресс этой серии не записан"}
+        require(value.completed.all {(key,parts)->Regex("[a-f0-9]{64}").matches(key) && parts.distinct().size==parts.size && parts.all {it in 0..100000}})
         require(value.topic.length<=160 && value.extra.length<=2000 && value.part in 0..100000 && value.previewPage in 0..100000)
         require(value.difficulty in setOf("easy","medium","hard") && value.count.length<=2)
     }
@@ -83,5 +87,12 @@ internal object AiRequestRules {
             }
         }
         require(body.toString().toByteArray(Charsets.UTF_8).size<=if(route=="extract")4300000 else 65536) {"Запрос слишком большой"}
+    }
+}
+
+internal object MaterialSeries {
+    fun key(source: String,task: String,topic: String,extra: String,difficulty: String,count: String): String {
+        val value=org.json.JSONArray(listOf(source,task,topic,extra,difficulty,count)).toString()
+        return java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") {"%02x".format(it.toInt() and 255)}
     }
 }
