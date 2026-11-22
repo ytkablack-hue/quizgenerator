@@ -18,23 +18,23 @@ internal enum class CreationSource {CHOOSE,DOCUMENT,PHOTO,TEXT,AI}
     var job by remember {mutableStateOf<Job?>(null)};val busy=job?.isActive==true
     val scope=rememberCoroutineScope();val auth=LocalAuth.current
     val client=remember(auth) {AiClient(StudySettings(),authToken={auth.token()})}
-    if(pending)StudyConfirmation("Отправить собственный текст?","Будет выполнен1запрос через Cloudflare в Gemini: "+text.length+" символов. Автоматической отправки нет.","Отправить",{pending=false}) {
-        pending=false;job=scope.launch {try {onDraft(client.quiz(title,text,difficulty,count.toInt()))}
+    if(pending)StudyConfirmation("Отправить собственный текст?","Тема: "+title+". Материал: "+(if(source==CreationSource.AI)0 else text.length)+" символов. Один запрос; документ не передаётся.","Отправить",{pending=false}) {
+        pending=false;job=scope.launch {try {onDraft(client.quiz(title,if(source==CreationSource.AI)"" else text,difficulty,count.toInt()))}
             catch(e: CancellationException){throw e}catch(e: Exception){error=e.message ?: "Не удалось создать вопросы"}finally{job=null}}
     }
     ScreenList {
         item {SectionHeading("Создать учебный материал","Выберите источник и способ подготовки")}
         item {FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            listOf(CreationSource.DOCUMENT to "Документ",CreationSource.PHOTO to "Фото",CreationSource.TEXT to "Свой текст").forEach {(id,label)->FilterChip(source==id,{source=id;error=null},label={Text(label)},enabled=!busy)}
+            listOf(CreationSource.AI to "По теме",CreationSource.DOCUMENT to "Документ",CreationSource.PHOTO to "Фото",CreationSource.TEXT to "Свой текст").forEach {(id,label)->FilterChip(source==id,{source=id;error=null},label={Text(label)},enabled=!busy)}
         }}
-        if(source==CreationSource.TEXT) {
-            item {StudyField(title,{title=it.take(160)},"Название")}
-            item {OutlinedTextField(text,{if(it.length<=12000)text=it else error="Текст длиннее12000символов. Прикрепите TXT: полный документ будет сохранён отдельно"},modifier=Modifier.fillMaxWidth(),label={Text("Собственный текст")},minLines=5,maxLines=10)}
-            item {Text(text.length.toString()+" /12000 · файлы не вставляются в это поле")}
-            item {OutlinedButton(enabled=!busy,onClick={runCatching {QuizTextParser.parse(text,title).quiz}.onSuccess(onDraft).onFailure {error=it.message ?: "Не удалось найти готовые вопросы"}}) {Text("Открыть готовые вопросы")}}
+        if(source==CreationSource.TEXT || source==CreationSource.AI) {
+            item {StudyField(title,{title=it.take(160)},"Тема / название")}
+            if(source==CreationSource.TEXT)item {OutlinedTextField(text,{if(it.length<=12000)text=it else error="Текст длиннее12000символов. Прикрепите TXT: полный документ будет сохранён отдельно"},modifier=Modifier.fillMaxWidth(),label={Text("Собственный текст")},minLines=5,maxLines=10)}
+            if(source==CreationSource.TEXT)item {Text(text.length.toString()+" /12000 · файлы не вставляются в это поле")}
+            if(source==CreationSource.TEXT)item {OutlinedButton(enabled=!busy,onClick={runCatching {QuizTextParser.parse(text,title).quiz}.onSuccess(onDraft).onFailure {error=it.message ?: "Не удалось найти готовые вопросы"}}) {Text("Открыть готовые вопросы")}}
             item {StudyField(count,{count=it.filter(Char::isDigit).take(2)},"Вопросов (1–25)")}
             item {FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {listOf("easy" to "Легко","medium" to "Средне","hard" to "Сложно").forEach {(id,label)->FilterChip(difficulty==id,{difficulty=id},label={Text(label)})}}}
-            item {Button(enabled=!busy && text.isNotBlank() && count.toIntOrNull() in 1..25 && auth.account?.verified==true,onClick={pending=true}) {Text("Создать тест с Gemini")}}
+            item {Button(enabled=!busy && (if(source==CreationSource.AI)title.isNotBlank() else text.isNotBlank()) && count.toIntOrNull() in 1..25 && auth.account?.verified==true,onClick={pending=true}) {Text("Создать тест с Gemini")}}
         } else {
             item {StudyPanel(tone=PanelTone.SKY) {
                 StudyIcon(if(source==CreationSource.PHOTO)Glyph.FILE else Glyph.LIBRARY)

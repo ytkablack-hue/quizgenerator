@@ -53,7 +53,7 @@ internal object MaterialSlices {
 }
 
 internal data class AiDraft(val sourceId: String?=null,val topic: String="",val extra: String="",val part: Int=0,
-    val difficulty: String="medium",val count: String="5",val previewPage: Int=0,val completed: Map<String,List<Int>> = emptyMap())
+    val difficulty: String="medium",val count: String="5",val previewPage: Int=0,val completed: Map<String,List<Int>> = emptyMap(),val inputMode: AiInputMode=AiInputMode.TOPIC,val ownText: String="")
 internal class AiDraftStore(private val file: File) {
     fun load(): AiDraft {
         if(!file.exists())return AiDraft()
@@ -61,16 +61,18 @@ internal class AiDraftStore(private val file: File) {
         val r=JSONObject(file.readText());val runs=r.optJSONObject("completed") ?: JSONObject();require(runs.length()<=100)
         val completed=runs.keys().asSequence().associateWith {key->val a=runs.getJSONArray(key);require(a.length()<=5000);List(a.length()){i->val n=a.get(i);require(n is Number && n.toDouble()==n.toInt().toDouble());n.toInt()}}
         return AiDraft(r.opt("sourceId") as? String,r.optString("topic"),r.optString("extra"),
-            r.optInt("part"),r.optString("difficulty","medium"),r.optString("count","5"),r.optInt("previewPage"),completed).also(::validate)
+            r.optInt("part"),r.optString("difficulty","medium"),r.optString("count","5"),r.optInt("previewPage"),completed,if(r.has("inputMode"))AiInputMode.valueOf(r.getString("inputMode")) else if(!r.isNull("sourceId"))AiInputMode.DOCUMENT else if(r.optString("extra").isNotBlank())AiInputMode.TEXT else AiInputMode.TOPIC,
+            r.optString("ownText",if(!r.has("inputMode") && r.isNull("sourceId"))r.optString("extra") else "")).also(::validate)
     }
     fun save(value: AiDraft) {validate(value);atomicWrite(file,JSONObject().put("version",1).put("sourceId",value.sourceId)
         .put("topic",value.topic).put("extra",value.extra).put("part",value.part).put("difficulty",value.difficulty)
-        .put("count",value.count).put("previewPage",value.previewPage).put("completed",JSONObject(value.completed.mapValues {org.json.JSONArray(it.value)})).toString())}
+        .put("count",value.count).put("inputMode",value.inputMode.name).put("ownText",value.ownText).put("previewPage",value.previewPage).put("completed",JSONObject(value.completed.mapValues {org.json.JSONArray(it.value)})).toString())}
     private fun validate(value: AiDraft) {
         require(value.sourceId==null || runCatching {java.util.UUID.fromString(value.sourceId).toString()==value.sourceId}.getOrDefault(false))
         require(value.completed.size<=100 && value.completed.values.sumOf {it.size}<=10000) {"История фрагментов заполнена. Результат сохранён, но прогресс этой серии не записан"}
         require(value.completed.all {(key,parts)->Regex("[a-f0-9]{64}").matches(key) && parts.distinct().size==parts.size && parts.all {it in 0..100000}})
-        require(value.topic.length<=160 && value.extra.length<=2000 && value.part in 0..100000 && value.previewPage in 0..100000)
+        require(value.ownText.length<=AiLimits.MATERIAL)
+        require(value.topic.length<=AiLimits.TOPIC && value.extra.length<=AiLimits.INSTRUCTIONS && value.part in 0..100000 && value.previewPage in 0..100000)
         require(value.difficulty in setOf("easy","medium","hard") && value.count.length<=2)
     }
 }
@@ -78,15 +80,15 @@ internal class AiDraftStore(private val file: File) {
 internal object AiRequestRules {
     fun validate(route: String,body: JSONObject) {
         if(route in setOf("quizzes","flashcards","review")) {
-            require(body.optString("material").length<=12000) {"Материал запроса больше 12000 символов"}
+            require(body.optString("material").length<=AiLimits.MATERIAL) {"Материал запроса больше 12000 символов"}
             if(route!="review") {
-                require(body.optString("topic").length<=160)
+                require(body.optString("topic").length<=AiLimits.TOPIC)
                 require(body.optString("material").isNotBlank() || body.optString("topic").isNotBlank()) {"Добавьте тему или материал"}
                 val count=body.opt("count")
-                require(count is Number && count.toDouble()==count.toInt().toDouble() && count.toInt() in 1..25 && body.optString("difficulty") in setOf("easy","medium","hard"))
+                require(count is Number && count.toDouble()==count.toInt().toDouble() && count.toInt() in 1..AiLimits.COUNT && body.optString("difficulty") in setOf("easy","medium","hard"))
             }
         }
-        require(body.toString().toByteArray(Charsets.UTF_8).size<=if(route=="extract")4300000 else 65536) {"Запрос слишком большой"}
+        require(body.toString().toByteArray(Charsets.UTF_8).size<=if(route=="extract")4300000 else AiLimits.REQUEST_BYTES) {"Запрос слишком большой"}
     }
 }
 

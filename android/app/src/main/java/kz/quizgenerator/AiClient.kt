@@ -49,8 +49,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
     }
 
     private fun input(topic: String, material: String, difficulty: String, count: Int) =
-        JSONObject().put("topic", topic.trim()).put("material", material.trim())
-            .put("difficulty", difficulty).put("count", count)
+        AiGeneration.input(topic,material,difficulty,count)
 
     private suspend fun request(route: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         if(body!=null)AiRequestRules.validate(route,body)

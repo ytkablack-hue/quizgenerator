@@ -39,7 +39,7 @@ internal class MaterialUiModel: ViewModel() {
     }
     fun update(value: AiDraft) {
         if(!ready)return
-        if(value.extra.length>2000 || value.topic.length>160) {error="Слишком длинное поле. Учебный текст прикрепите файлом";return}
+        if(value.extra.length>AiLimits.INSTRUCTIONS || value.topic.length>AiLimits.TOPIC || value.ownText.length>AiLimits.MATERIAL) {error="Слишком длинное поле. Учебный текст прикрепите файлом";return}
         draft=value;saving?.cancel()
         saving=work.launch {delay(200);try {withContext(Dispatchers.IO) {writeLock.withLock {store().save(value)}}}
             catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось сохранить настройки. Документы сохранены отдельно"}}
@@ -67,7 +67,7 @@ internal class MaterialUiModel: ViewModel() {
                 records=listOf(saved)+records
                 if(setId!=null)try {withContext(Dispatchers.IO){requireNotNull(repo).sets.linkMaterial(setId,saved.id)}} catch(e: CancellationException){throw e}catch(_: Exception){error="Документ сохранён в библиотеке, но не прикреплён к набору"}
                 setRevision++
-                select(saved.id)
+                update(draft.copy(inputMode=AiInputMode.DOCUMENT));select(saved.id)
             } catch(e: CancellationException){throw e}
               catch(e: Exception){error=if(e is IllegalArgumentException)e.message else "Не удалось прочитать документ. Проверьте формат и свободное место"}
             finally {progress=null}

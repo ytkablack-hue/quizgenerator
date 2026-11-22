@@ -28,7 +28,8 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         if(studySetId!=null && model.ready)try {
             val set=withContext(Dispatchers.IO){repository.sets.list().first {it.id==studySetId && !it.archived}}
             currentSet=set;setReady=true
-            if(model.draft.sourceId !in set.materialIds)model.select(set.materialIds.firstOrNull())
+            val next=AiGeneration.initialDocument(model.draft.inputMode,model.draft.sourceId,set.materialIds)
+            if(next!=model.draft.sourceId)model.select(next)
         } catch(e: CancellationException){throw e}catch(_: Exception){setReady=false}
     }
     val client=remember(auth) {AiClient(settings,authToken={auth.token()})}
@@ -45,16 +46,16 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     val draft=model.draft;val visibleRecords=model.records.filter {studySetId==null || it.id in currentSet?.materialIds.orEmpty()};val record=model.records.firstOrNull {it.id==draft.sourceId}
     val reviewText=remember(attempt) {attempt?.let {AiClient.reviewText(it)}.orEmpty()}
     val reviewParts=remember(reviewText) {MaterialSlices.plan(reviewText)}
-    val parts=if(mode==AiTask.REVIEW)reviewParts else model.parts
+    val parts=if(mode==AiTask.REVIEW)reviewParts else if(draft.inputMode==AiInputMode.DOCUMENT)model.parts else emptyList()
     val selected=parts.getOrNull(draft.part.coerceAtMost((parts.size-1).coerceAtLeast(0)))
     val full=if(mode==AiTask.REVIEW)reviewText else model.text
-    val series=MaterialSeries.key(if(mode==AiTask.REVIEW)attempt?.id.orEmpty() else draft.sourceId ?: "manual",mode.name,draft.topic,draft.extra,draft.difficulty,draft.count)
+    val series=MaterialSeries.key(if(mode==AiTask.REVIEW)attempt?.id.orEmpty() else draft.sourceId ?: "manual",mode.name+draft.inputMode.name,draft.topic,draft.extra+draft.ownText,draft.difficulty,draft.count)
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri->if(uri!=null)model.attach(uri,studySetId)}
     fun prepare() {
         try {
             require(mode!=AiTask.REVIEW || (attempt?.mistakes?.isNotEmpty()==true && selected!=null)) { "Нет ошибок для разбора" }
-            require(mode==AiTask.REVIEW || draft.sourceId==null || (record!=null && model.text.isNotEmpty() && selected!=null)) { "Дождитесь открытия выбранного документа" }
-            require(setReady && (studySetId==null || draft.sourceId==null || draft.sourceId in currentSet?.materialIds.orEmpty())) {"Дождитесь открытия материала этого набора"}
+            require(mode==AiTask.REVIEW || draft.inputMode!=AiInputMode.DOCUMENT || (record!=null && model.text.isNotEmpty() && selected!=null)) { "Дождитесь открытия выбранного документа" }
+            require(setReady && (mode==AiTask.REVIEW || draft.inputMode!=AiInputMode.DOCUMENT || studySetId==null || draft.sourceId in currentSet?.materialIds.orEmpty())) {"Дождитесь открытия материала этого набора"}
             val body=if(selected?.oversized==true) {
                 require(rangeConfirmed) {"Подтвердите выбор неполного фрагмента"}
                 val a=(rangeStart.toIntOrNull() ?: error("Укажите первый символ"))-1
@@ -63,7 +64,8 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                 require(!Character.isLowSurrogate(full[a]) && (b==full.length || !Character.isLowSurrogate(full[b]))) {"Граница разрезает символ Unicode"}
                 full.substring(a,b)
             } else selected?.text(full).orEmpty()
-            val material=MaterialSlices.compose(body,if(mode==AiTask.REVIEW)"" else draft.extra)
+            val material=if(mode==AiTask.REVIEW)MaterialSlices.compose(body,"") else AiGeneration.build(
+                draft.inputMode,draft.topic,draft.ownText,body,draft.extra,draft.difficulty,draft.count.toIntOrNull() ?: 0).getString("material")
             require(material.isNotBlank() || draft.topic.isNotBlank()) {"Добавьте тему или материал"}
             pending=GenerationRequest(mode,if(mode==AiTask.REVIEW)"" else draft.topic,material,draft.difficulty,draft.count.toIntOrNull() ?: 0,series,parts.indexOf(selected),parts.size,selected!=null && !selected.oversized)
         } catch(e: Exception) {failure=e.message ?: "Проверьте выбранный фрагмент"}
@@ -77,7 +79,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                 record?.notice?.takeIf {it.isNotBlank()}?.let {Text(it)}
                 Text("Не отправляйте конфиденциальные материалы без права передачи.")
                 TextButton(onClick={preview=!preview}){Text(if(preview)"Скрыть текст" else "Посмотреть точный текст запроса")}
-                if(preview)androidx.compose.foundation.text.selection.SelectionContainer {Text(request.material.ifBlank {request.topic})}
+                if(preview)androidx.compose.foundation.text.selection.SelectionContainer {Column {Text("Тема: "+request.topic);Text("Материал: "+request.material.ifBlank {"Не передаётся"});Text("Количество: "+request.count+" · "+request.difficulty)}}
             }
         },dismissButton={TextButton(onClick={pending=null}){Text("Отмена")}},confirmButton={TextButton(onClick={
         pending=null;failure=null;notice=null
@@ -103,6 +105,8 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         if(auth.account?.verified!=true)TextButton(onClick=onAccount) {Text("Подтвердить почту для Gemini")}
         FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {AiTask.entries.forEach {task -> FilterChip(mode==task,{mode=task;model.update(draft.copy(part=0))},label={Text(task.title)},enabled=!busy)}}
         if(mode!=AiTask.REVIEW) {
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {AiInputMode.entries.forEach {input->FilterChip(draft.inputMode==input,{model.update(draft.copy(inputMode=input,part=0));failure=null},label={Text(input.title)},enabled=!busy && model.progress==null)}}
+            if(draft.inputMode==AiInputMode.DOCUMENT) {
             OutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
             if(visibleRecords.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
             visibleRecords.take(documentLimit).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
@@ -116,10 +120,16 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                 }
             }}
             if(visibleRecords.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(visibleRecords.size)}) {Text("Показать ещё · всего "+visibleRecords.size)}
-            if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Использовать только тему и собственный текст")}
+            if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Снять выбор документа")}
+            }
+            if(draft.inputMode==AiInputMode.TOPIC)Text("Отправится только тема. Прикреплённые документы и собственный текст не передаются.")
+            if(draft.inputMode==AiInputMode.TEXT) {
+                OutlinedTextField(draft.ownText,{model.update(draft.copy(ownText=it))},modifier=Modifier.fillMaxWidth(),label={Text("Собственный текст")},minLines=5,maxLines=10)
+                Text(draft.ownText.length.toString()+" / "+AiLimits.MATERIAL+" символов")
+            }
             StudyField(draft.topic,{model.update(draft.copy(topic=it))},"Тема")
-            OutlinedTextField(draft.extra,{model.update(draft.copy(extra=it))},modifier=Modifier.fillMaxWidth(),label={Text("Дополнительный текст — необязательно")},minLines=2,maxLines=5)
-            Text(draft.extra.length.toString()+" /2000 · Содержимое файла сюда не вставляется",style=MaterialTheme.typography.bodySmall)
+            if(draft.inputMode==AiInputMode.DOCUMENT)OutlinedTextField(draft.extra,{model.update(draft.copy(extra=it))},modifier=Modifier.fillMaxWidth(),label={Text("Дополнительный текст — необязательно")},minLines=2,maxLines=5)
+            if(draft.inputMode==AiInputMode.DOCUMENT)Text(draft.extra.length.toString()+" /2000 · Содержимое файла сюда не вставляется",style=MaterialTheme.typography.bodySmall)
             FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {listOf("easy" to "Легко","medium" to "Средне","hard" to "Сложно").forEach {(id,title)-> FilterChip(draft.difficulty==id,{model.update(draft.copy(difficulty=id))},label={Text(title)},enabled=!busy)}}
             StudyField(draft.count,{model.update(draft.copy(count=it.filter(Char::isDigit).take(2)))},"Количество (1–25)")
             if(mode==AiTask.QUIZ)Text("Gemini создаёт вопросы с одним ключом. Несколько ключей доступны в импорте и редакторе. Ответы ИИ требуют подтверждения.")
