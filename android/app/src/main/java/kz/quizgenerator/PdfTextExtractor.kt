@@ -10,9 +10,7 @@ import java.io.InputStream
 /** Uses the installed Android PDF engine, without adding a native parser or sending files online. */
 internal object PdfTextExtractor {
     private const val MAX_BYTES = 64L * 1024 * 1024
-    fun paragraphs(source: InputStream, directory: File, size: Long?, progress: (Float?) -> Unit, consume: (String) -> Unit) {
-        if (Build.VERSION.SDK_INT < 35) throw IllegalArgumentException(
-            "Локальный текст PDF доступен с Android 15. На этом устройстве выберите TXT/DOCX или распознавание с ИИ после согласия на отправку файла.")
+    fun paragraphs(source: InputStream, directory: File, size: Long?, progress: (Float?) -> Unit, consume: (String) -> Unit, ocr: ((PdfRenderer.Page,(Float)->Unit)->String)? = null): Boolean {
         require(size == null || size <= MAX_BYTES) { "PDF больше 64 МБ. Разделите документ" }
         val file = File.createTempFile("testhelper-pdf-", ".pdf", directory)
         try {
@@ -26,22 +24,32 @@ internal object PdfTextExtractor {
                     out.write(buffer,0,n)
                 }
             }
-            readPages(file, progress, consume)
+            return readPages(file, progress, consume,ocr)
         } finally { file.delete() }
     }
 
-    @RequiresApi(35)
-    private fun readPages(file: File, progress: (Float?) -> Unit, consume: (String) -> Unit) {
+    private fun readPages(file: File, progress: (Float?) -> Unit, consume: (String) -> Unit,ocr: ((PdfRenderer.Page,(Float)->Unit)->String)?): Boolean {
+        var usedOcr=false
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             PdfRenderer(fd).use { renderer ->
                 PdfTextPages.consume(renderer.pageCount, { progress(null) }, { page ->
                     progress(.4f+.59f*page/renderer.pageCount.coerceAtLeast(1))
-                    renderer.openPage(page).use { it.textContents.map { block -> block.text } }
+                    renderer.openPage(page).use { current ->
+                        val text=if(Build.VERSION.SDK_INT>=35)textContents(current) else emptyList()
+                        if(text.any {it.isNotBlank()})text else {
+                            val recognize=ocr ?: throw IllegalArgumentException("Страница требует OCR")
+                            usedOcr=true
+                            listOf(recognize(current) {fraction -> progress(.4f+.59f*(page+fraction)/renderer.pageCount.coerceAtLeast(1))})
+                        }
+                    }
                 }, consume)
             }
         }
         progress(1f)
+        return usedOcr
     }
+    @RequiresApi(35)
+    private fun textContents(page: PdfRenderer.Page): List<String> = page.textContents.map {it.text}
 }
 
 /** Shared bounds/cancellation and fail-closed handling of mixed text/scan documents. */

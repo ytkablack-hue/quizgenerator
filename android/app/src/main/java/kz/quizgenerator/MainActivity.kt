@@ -364,7 +364,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         editor.load?.let { StudyLoading("Обработка документа", it.fraction, editor::cancel) }
                         editor.failure?.let { StudyError(it); ImportEncodingControls(editor, repository) }
                         CreationFlow(creationSource,
-                            onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
+                            onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/pdf", "image/jpeg", "image/png", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
                             onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) },
                             onDraft = { openDraft(QuizDraft(it), Page.CREATE) }, onAccount = { accountReturn = page; page = Page.ACCOUNT })
                     }

@@ -49,4 +49,19 @@ class MultiAnswerTest {
         assertEquals(setOf("2","4"),q.correctIndices.map {q.options[it]}.toSet())
         assertEquals(QuizScore(1,0,0,0),QuizScorer.scoreSelections(shuffled,listOf(q.correctIndices.toSet())))
     }
+    @Test fun cardsPreserveAllKeysWithoutDuplicates() {
+        val card=QuizCards.create(quiz,emptyList()).single()
+        assertEquals("2\n4",card.back)
+        assertEquals(AnswerEvidence.SOURCE,card.evidence)
+        assertTrue(QuizCards.create(quiz,listOf(card)).isEmpty())
+    }
+    @Test fun originalFractionalOrStringAnswersAreRejected() {
+        val file=folder.root.resolve("old.json");val store=ActiveAttemptStore(file)
+        store.save(ActiveAttempt(quiz,listOf(0),0,"attempt",1000,2000,3))
+        val original=file.readText()
+        for(bad in listOf("[0.5]","[\"0\"]")) {
+            file.writeText(JSONObject(original).put("answers",org.json.JSONArray(bad)).toString())
+            val before=file.readText();assertThrows(IllegalArgumentException::class.java) {store.load()};assertEquals(before,file.readText())
+        }
+    }
 }

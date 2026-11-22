@@ -45,6 +45,7 @@ android {
 
 dependencies {
     implementation(project(":ui"))
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

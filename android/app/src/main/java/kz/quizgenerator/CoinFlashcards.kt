@@ -11,13 +11,13 @@ import java.util.UUID
 internal object QuizCards {
     fun create(quiz: Quiz, existing: List<Flashcard>): List<Flashcard> {
         val known = existing.mapNotNull(Flashcard::sourceKey).toSet()
-        // A card has one back side, so multiple-answer questions stay in the quiz only.
-        return quiz.questions.filter { it.correctIndices.size == 1 && it.evidence != AnswerEvidence.UNKNOWN }
+        // Preserve the full answer set and its provenance on the back of one card.
+        return quiz.questions.filter { it.correctIndices.isNotEmpty() && it.evidence != AnswerEvidence.UNKNOWN }
             .mapNotNull { question ->
-                val answer = question.correctIndices.single()
+                val answer = question.correctIndices.joinToString(",")
                 val source = quiz.id + ":" + AnswerPolicy.fingerprint(question) + ":" + answer
                 if (source in known) null else Flashcard(
-                    UUID.randomUUID().toString(), question.text, question.options[answer],
+                    UUID.randomUUID().toString(), question.text, question.correctIndices.joinToString("\n") { question.options[it] },
                     quiz.generatedByAi, sourceKey = source, sourceQuizId = quiz.id, evidence = question.evidence
                 )
             }

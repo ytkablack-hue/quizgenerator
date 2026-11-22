@@ -61,11 +61,12 @@ internal fun CreationFlow(initial: CreationSource, onImport: () -> Unit, onAi: (
         if (source == CreationSource.DOCUMENT || source == CreationSource.PHOTO) item {
             StudyPanel {
                 if (source == CreationSource.DOCUMENT) {
-                    Text("Готовые вопросы TXT, Word, JSON и текст PDF (Android 15+) открываются локально в редакторе.")
+                    Text("TXT, Word, JSON, PDF и JPG/PNG открываются локально. Сканы и фото распознаются OCR на устройстве; проверьте результат.")
                     Button(onClick = onImport, enabled = !busy) { Text("Открыть локальный документ") }
                     HorizontalDivider()
                 }
-                Text(if (source == CreationSource.PHOTO) "Выберите фото с учебным текстом" else "PDF: распознать текст с ИИ")
+                if(source==CreationSource.PHOTO)OutlinedButton(onClick=onImport,enabled=!busy) {Text("Распознать фото локально")}
+                Text(if (source == CreationSource.PHOTO) "Облачное распознавание фото (необязательно)" else "PDF: распознать текст с ИИ")
                 OutlinedButton(enabled = !busy, onClick = { picker.launch(if (source == CreationSource.PHOTO) arrayOf("image/jpeg","image/png") else arrayOf("application/pdf")) }) { Text("Выбрать файл") }
                 Text(if (selected == null) "Файл не выбран" else "Файл выбран. Максимум 3 МБ")
                 Text("По нажатию «Распознать» выбранный файл будет отправлен через сервер в Gemini. Не загружайте конфиденциальные данные. Проверьте текст после распознавания.")

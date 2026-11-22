@@ -75,6 +75,7 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
         }
         input.reset()
         return when {
+            suffix in setOf("jpg","jpeg","png") || (length>=3 && prefix[0]==0xff.toByte() && prefix[1]==0xd8.toByte() && prefix[2]==0xff.toByte()) || (length==4 && prefix.contentEquals(byteArrayOf(0x89.toByte(),0x50,0x4e,0x47))) -> "image"
             suffix == "pdf" || (length == 4 && prefix.contentEquals("%PDF".toByteArray())) -> "pdf"
             suffix == "docx" || (length >= 2 && prefix[0] == 0x50.toByte() && prefix[1] == 0x4b.toByte()) -> "docx"
             else -> suffix
@@ -114,9 +115,17 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
         var detectedCharset = "UTF-8"
         var confident = true
         var preview = ""
+        var usedOcr=false
         val parsed = when (format) {
             "pdf" -> QuizTextParser.parseFrom(title, { report(null) }) { consume ->
-                PdfTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
+                LocalOcr(context).use { engine ->
+                    usedOcr=PdfTextExtractor.paragraphs(counted,context.cacheDir,details.bytes,::report,consume) {page,progress -> engine.page(page,progress)}
+                }
+            }
+            "image" -> {
+                usedOcr=true
+                val text=LocalOcr(context).use {it.image(counted,context.cacheDir,details.bytes,::report)}
+                QuizTextParser.parseFrom(title,{report(null)}) {consume -> text.lineSequence().forEach(consume)}
             }
             "docx" -> QuizTextParser.parseFrom(title) { consume ->
                 DocxTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
@@ -135,11 +144,11 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
             }
         }
         report(1f)
-        val warnings = if (confident) parsed.warnings else parsed.warnings + listOf(
+        val warnings = (if(usedOcr)parsed.warnings+"Использован локальный OCR. Проверьте текст, варианты и ключи: OCR-ключи не оцениваются до ручного подтверждения." else parsed.warnings) + if (confident) emptyList() else listOf(
             "Кодировка определена как $detectedCharset предположительно. Проверьте текст или выберите кодировку вручную."
         )
         ImportResult(
-            parsed.quiz, warnings, details.copy(bytes = counted.total),
+            OcrReview.review(parsed.quiz,usedOcr), warnings, details.copy(bytes = counted.total),
             charset = detectedCharset, encodingConfident = confident, preview = preview
         )
     }
