@@ -22,7 +22,7 @@ export async function verifyToken(token, project, {fetcher = fetch, now = Date.n
       claims.firebase?.sign_in_provider !== 'password') throw Error('invalid token');
   if (!keys) {
     if (!cached || cached.expires <= now) {
-      const response = await fetcher(JWKS, {signal: AbortSignal.timeout(8000), redirect: 'error'});
+      const response = await fetcher(JWKS, {signal: AbortSignal.timeout(8000), redirect: 'manual'});
       if (!response.ok) throw Error('auth unavailable');
       const data = await response.json();
       if (!Array.isArray(data.keys) || data.keys.length > 10) throw Error('auth unavailable');
@@ -44,7 +44,7 @@ export async function activeUser(token, claims, apiKey, fetcher = fetch, require
   // Lookup rejects deleted/disabled users and revoked sessions; do not cache positive results.
   const response = await fetcher('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(apiKey), {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({idToken: token}),
-    signal: AbortSignal.timeout(8000), redirect: 'error',
+    signal: AbortSignal.timeout(8000), redirect: 'manual',
   });
   if (!response.ok) throw Error(response.status >= 500 || response.status === 429 ? 'auth unavailable' : 'invalid session');
   const user = (await response.json()).users?.[0];

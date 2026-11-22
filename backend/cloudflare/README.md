@@ -1,6 +1,6 @@
 # TestHelper: user authorization for the existing Worker
 
-Status: implemented and locally tested; NOT deployed. Existing production Worker and secrets are unchanged.
+Status (2026-11-22): deployed to existing testhelper-ai with Firebase and SQLite AI_QUOTA. Secrets preserved. Real Firebase signup/signin and 401/403 checks passed; Gemini returned a real valid two-question quiz using retained legacy admin access. The full verified-user Firebase path awaits email confirmation. See ../../docs/CONTINUE.md for current version, rollback and exact remaining check.
 
 The Android app discovers public Firebase configuration from GET /api/v1/auth/config at its fixed HTTPS production base URL. Firebase Email/Password authentication owns passwords; Android stores sessions encrypted with Android Keystore in noBackupFilesDir. No shared server token or Gemini key is bundled in the APK. The Firebase Web API key is public client configuration, not an Admin credential.
 
@@ -22,6 +22,6 @@ PDF/JPEG/PNG extraction: authenticated POST /api/v1/ai/extract, body {mimeType,d
 
 GET /delete-account serves a same-origin HTML form with strict CSP. It signs into Firebase and calls authenticated DELETE /api/v1/account with a recent ID token. The Worker deletes the Firebase account before erasing UID-specific quota/replay records; passwords/tokens are not stored by the page or Worker. This page becomes available only after deployment. Local documents and attempts are not deleted by account removal. Provider retention/logging rules remain applicable; see the privacy draft.
 
-No live rollout or new authentication system is claimed while Firebase/bindings are pending.
+Production rollout and its exact remaining verified-user check are recorded in ../../docs/CONTINUE.md.
 
 DELETE /api/v1/account accepts an authenticated unverified account too, so email confirmation is not a prerequisite for deletion. Recent authentication <=5 minutes is required. IP/global aggregate counters retain their short TTL and are not reset by deleting an account. Provider deletion and quota cleanup are two systems: a failure between them may require support/TTL cleanup. Cloudflare SQLite point-in-time recovery may retain deleted records in provider-managed history for up to 30 days; logical TTL is not a promise of physical erasure.

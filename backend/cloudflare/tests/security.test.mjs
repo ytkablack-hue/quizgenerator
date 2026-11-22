@@ -15,6 +15,15 @@ async function token(payload=claims,header={alg:'RS256',kid:'test-key'}) {
  return parts.join('.')+'.'+Buffer.from(signature).toString('base64url');
 }
 const opts={keys:[jwk],now};
+
+test('JWKS redirects fail closed using the Workers-compatible manual policy',async()=>{
+ let calls=0;
+ await assert.rejects(verifyToken(await token(),project,{now,fetcher:async(url,init)=>{
+  calls++;assert.equal(init.redirect,'manual');
+  return new Response(null,{status:302,headers:{Location:'https://attacker.test/keys'}});
+ }}),/auth unavailable/);
+ assert.equal(calls,1);
+});
 test('signed Firebase ID token accepts verified user and exact project',async()=>{
  assert.equal((await verifyToken(await token(),project,opts)).sub,'user-a');
 });
@@ -138,6 +147,7 @@ for(const [route,payload,modelResult] of [
  const idToken=await token({...claims,iat:current-1,exp:current+3500,auth_time:current-5});
  let providerCalls=0;
  globalThis.fetch=async(url,init)=>{
+  assert.equal(init.redirect,'manual','Workers supports manual redirects, not error');
   if(String(url).includes('/service_accounts/'))return Response.json({keys:[jwk]});
   if(String(url).includes('accounts:lookup'))return Response.json({users:[{localId:'user-a',emailVerified:true}]});
   assert.ok(String(url).includes('gemini-3.5-flash-lite:generateContent'));assert.equal(init.headers['x-goog-api-key'],'fake-private-key');providerCalls++;
@@ -155,7 +165,8 @@ for(const providerSucceeds of [true,false]) test('account deletion only clears q
  const env={FIREBASE_PROJECT_ID:project,FIREBASE_WEB_API_KEY:'fake-public-key',AI_QUOTA:{idFromName:name=>name,get:()=>({fetch:(url,init)=>quotaObject.fetch(new Request(url,init))})}};
  const current=Math.floor(Date.now()/1000),idToken=await token({...claims,email_verified:false,iat:current-1,exp:current+3500,auth_time:current-5});
  let deletes=0;
- globalThis.fetch=async(url)=>{
+ globalThis.fetch=async(url,init)=>{
+  assert.equal(init.redirect,'manual','Workers supports manual redirects, not error');
   if(String(url).includes('/service_accounts/'))return Response.json({keys:[jwk]});
   if(String(url).includes('accounts:lookup'))return Response.json({users:[{localId:'user-a',emailVerified:false}]});
   assert.ok(String(url).includes('accounts:delete'));deletes++;
