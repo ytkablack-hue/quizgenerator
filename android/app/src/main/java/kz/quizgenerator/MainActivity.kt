@@ -294,7 +294,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     Page.HOME -> HomeScreen { source -> creationSource = source; aiTask = "quizzes"; page = if (source == CreationSource.AI) Page.AI else Page.CREATE }
                     Page.CREATE -> {
                         editor.load?.let { StudyLoading("Обработка документа", it.fraction, editor::cancel) }
-                        editor.failure?.let { StudyError(it) }
+                        editor.failure?.let { StudyError(it); ImportEncodingControls(editor, repository) }
                         CreationFlow(creationSource,
                             onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
                             onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) },
@@ -336,7 +336,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                                     openQuiz(it)
                                     scope.launch { snackbar.showSnackbar("Тест сохранён") }
                                 }.onFailure { draftError = it.message ?: "Не удалось сохранить тест" }
-                            }, draftError)
+                            }, draftError, { ImportEncodingControls(editor, repository) })
                     }
                     Page.QUESTION -> editor.draft?.let { draft ->
                         editor.fields?.let { fields ->

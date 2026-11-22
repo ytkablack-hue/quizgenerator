@@ -136,6 +136,7 @@ object QuizTextParser {
             }
 
             val primary = indices.firstOrNull()
+            require(entries.size < QuizLimits.QUESTIONS) { "В документе больше ${QuizLimits.QUESTIONS} вопросов" }
             entries.add(
                 ParsedEntry(
                     draft.number ?: draft.ordinal,
@@ -145,7 +146,12 @@ object QuizTextParser {
                         draft.options.map { it.text.trim() },
                         primary,
                         draft.explanation?.trim()?.ifBlank { null },
-                        evidence = if (indices.isEmpty()) AnswerEvidence.UNKNOWN else AnswerEvidence.SOURCE,
+                        evidence = when {
+                            indices.isEmpty() -> AnswerEvidence.UNKNOWN
+                            inline?.second?.isNotEmpty() == true ||
+                                (inline != null && marked.isNotEmpty() && inline.first.toSet() != marked.toSet()) -> AnswerEvidence.INFERRED
+                            else -> AnswerEvidence.SOURCE
+                        },
                         additionalCorrectIndices = indices.filter { it != primary }.distinct()
                     ),
                     draft.options.map { it.label }
@@ -212,6 +218,16 @@ object QuizTextParser {
                 return@read
             }
 
+            val keyHeader = ParserPatterns.keyHeader.matchEntire(line)
+            val answer = ParserPatterns.answer.matchEntire(line)
+            if (keyHeader != null && answer == null) {
+                flush()
+                keyMode = true
+                val rest = keyHeader.groupValues[1]
+                if (rest.isNotBlank()) handleKeyLine(rest)
+                return@read
+            }
+
             val draft = current
             if (draft == null) {
                 val number = ParserPatterns.numbered.matchEntire(line)
@@ -221,16 +237,6 @@ object QuizTextParser {
                     // Format E: a question without a number or a "Вопрос" prefix.
                     startQuestion(null, line, false)
                 }
-                return@read
-            }
-
-            val keyHeader = ParserPatterns.keyHeader.matchEntire(line)
-            val answer = ParserPatterns.answer.matchEntire(line)
-            if (keyHeader != null && answer == null) {
-                flush()
-                keyMode = true
-                val rest = keyHeader.groupValues[1]
-                if (rest.isNotBlank()) handleKeyLine(rest)
                 return@read
             }
 
@@ -299,7 +305,9 @@ object QuizTextParser {
                 question = entry.question.copy(
                     correctIndex = primary,
                     additionalCorrectIndices = indices.filter { it != primary }.distinct(),
-                    evidence = AnswerEvidence.SOURCE
+                    evidence = if (unresolved.isNotEmpty() ||
+                        (entry.question.correctIndices.isNotEmpty() && entry.question.correctIndices.toSet() != indices.toSet()))
+                        AnswerEvidence.INFERRED else AnswerEvidence.SOURCE
                 )
             )
         }
@@ -392,11 +400,11 @@ object QuizTextParser {
 
         fun single(token: String): Int? {
             val normalized = ParserPatterns.normalizeLabel(token)
-            val exact = labels.indexOfFirst { ParserPatterns.normalizeLabel(it) == normalized }
-            if (exact >= 0) return exact
+            val exact = labels.indices.filter { ParserPatterns.normalizeLabel(labels[it]) == normalized }
+            if (exact.isNotEmpty()) return exact.singleOrNull()
             val canonical = ParserPatterns.canonicalLabel(token)
-            val lookalike = canonicalLabels.indexOfFirst { it == canonical }
-            if (lookalike >= 0) return lookalike
+            val lookalike = canonicalLabels.indices.filter { canonicalLabels[it] == canonical }
+            if (lookalike.isNotEmpty()) return lookalike.singleOrNull()
             val numeric = token.trim().toIntOrNull()?.minus(1)?.takeIf { it in texts.indices }
             if (numeric != null) return numeric
             val textMatches = texts.withIndex().filter { it.value.trim().equals(token.trim(), ignoreCase = true) }

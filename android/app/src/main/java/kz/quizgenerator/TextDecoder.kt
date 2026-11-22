@@ -26,7 +26,9 @@ internal object TextDecoder {
         if (bytes.isEmpty()) return DecodedText("", "UTF-8", true)
         if (forced != null) {
             val charset = charsetFor(forced)
-            val text = strict(bytes, 0, bytes.size, charset) ?: String(bytes, charset)
+            val text = strict(bytes, 0, bytes.size, charset)
+                ?: throw IllegalArgumentException("Файл повреждён или не соответствует выбранной кодировке")
+            requireReadable(text)
             return DecodedText(stripBom(text), forced, true)
         }
 
@@ -39,13 +41,13 @@ internal object TextDecoder {
                 return DecodedText(decodeStrict(bytes, 2, "UTF-16BE"), "UTF-16BE", true)
         }
 
+        // Check UTF-16 before accepting ASCII control bytes as valid UTF-8.
+        guessUtf16(bytes)?.let { return it }
         val utf8 = strict(bytes, 0, bytes.size, StandardCharsets.UTF_8)
-        if (utf8 != null && utf8.none { it == '\u0000' }) {
+        if (utf8 != null && readable(utf8)) {
             return DecodedText(stripBom(utf8), "UTF-8", true)
         }
 
-        val utf16 = guessUtf16(bytes)
-        if (utf16 != null) return utf16
 
         val names = mutableListOf("Windows-1251", "KOI8-R")
         // UTF-16 Cyrillic text has 0x04 as the high (LE) or low (BE) byte, so it
@@ -54,14 +56,14 @@ internal object TextDecoder {
             names += listOf("UTF-16LE", "UTF-16BE")
         }
         val candidates = names.map { name ->
-            val text = String(bytes, charsetFor(name))
-            name to (text to score(text))
+            val text = strict(bytes, 0, bytes.size, charsetFor(name)).orEmpty()
+            name to (text to if (readable(text)) score(text) else -1000.0)
         }.sortedByDescending { it.second.second }
         val best = candidates.first()
-        val second = candidates.getOrNull(1)
-        val confident = best.second.second > 0.35 &&
-            (second == null || best.second.second - second.second.second > 0.08)
-        return DecodedText(stripBom(best.second.first), best.first, confident)
+        require(best.second.first.isNotEmpty()) { "Не удалось прочитать текст. Выберите кодировку вручную" }
+        requireReadable(best.second.first)
+        // Single-byte detection remains an assumption even if a language score wins.
+        return DecodedText(stripBom(best.second.first), best.first, false)
     }
 
     fun charsetFor(name: String): Charset = when (name) {
@@ -69,11 +71,12 @@ internal object TextDecoder {
         "UTF-16BE" -> StandardCharsets.UTF_16BE
         "Windows-1251" -> charset("windows-1251")
         "KOI8-R" -> charset("KOI8-R")
-        else -> StandardCharsets.UTF_8
+        "UTF-8" -> StandardCharsets.UTF_8
+        else -> throw IllegalArgumentException("Неизвестная кодировка: $name")
     }
 
     private fun charset(name: String): Charset =
-        runCatching { Charset.forName(name) }.getOrDefault(StandardCharsets.UTF_8)
+        Charset.forName(name)
 
     private fun strict(bytes: ByteArray, offset: Int, length: Int, charset: Charset): String? =
         runCatching {
@@ -84,15 +87,27 @@ internal object TextDecoder {
                 .toString()
         }.getOrNull()
 
-    private fun decodeStrict(bytes: ByteArray, offset: Int, name: String): String =
-        strict(bytes, offset, bytes.size - offset, charsetFor(name)) ?: ""
+    private fun decodeStrict(bytes: ByteArray, offset: Int, name: String): String {
+        val text = strict(bytes, offset, bytes.size - offset, charsetFor(name))
+            ?: throw IllegalArgumentException("Повреждённый файл $name: неверная последовательность байтов")
+        requireReadable(text)
+        return text
+    }
+
+    private fun readable(text: String): Boolean = text.none {
+        it == '\uFFFD' || (it.isISOControl() && it !in "\n\r\t")
+    }
+
+    private fun requireReadable(text: String) {
+        require(readable(text)) { "Файл содержит повреждённый текст или двоичные данные. Выберите другую кодировку" }
+    }
 
     private fun guessUtf16(bytes: ByteArray): DecodedText? {
         if (bytes.size < 4 || bytes.size % 2 != 0) return null
         var evenZero = 0
         var oddZero = 0
         for (index in bytes.indices) {
-            if (bytes[index] == 0.toByte()) {
+            if (bytes[index] == 0.toByte() || bytes[index] == 4.toByte()) {
                 if (index % 2 == 0) evenZero++ else oddZero++
             }
         }
@@ -103,7 +118,8 @@ internal object TextDecoder {
             else -> return null
         }
         val text = strict(bytes, 0, bytes.size, charsetFor(name)) ?: return null
-        return DecodedText(stripBom(text), name, true)
+        if (!readable(text)) return null
+        return DecodedText(stripBom(text), name, false)
     }
 
     private fun stripBom(text: String): String = text.removePrefix("\uFEFF")

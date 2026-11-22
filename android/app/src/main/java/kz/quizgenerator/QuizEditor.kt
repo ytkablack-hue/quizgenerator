@@ -65,17 +65,28 @@ internal class EditorModel : ViewModel() {
     var imported by mutableStateOf<ImportResult?>(null)
     private val work = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var current: Job? = null
+    var importCharset by mutableStateOf<String?>(null)
+    var sourceUri: Uri? = null
+        private set
+    var decodedPreview by mutableStateOf("")
+    var detectedCharset by mutableStateOf("")
 
-    fun import(repository: QuizRepository, uri: Uri) {
+    fun import(repository: QuizRepository, uri: Uri, charset: String? = null) {
         if (current?.isActive == true) return
+        sourceUri = uri
+        importCharset = charset
         failure = null
+        decodedPreview = ""
         load = ImportProgress(DocumentDetails("Документ", null), null)
         current = work.launch {
             try {
                 imported = withContext(Dispatchers.IO) {
                     val worker = currentCoroutineContext()
                     var percent: Int? = -1
-                    repository.previewImport(uri) { info ->
+                    repository.previewImport(uri, charset, onDecoded = { decoded ->
+                        decodedPreview = decoded.text.take(2000)
+                        detectedCharset = decoded.charset
+                    }) { info ->
                         worker.ensureActive()
                         val next = info.fraction?.let { (it * 100).toInt() }
                         if (next != percent) { percent = next; load = info }
@@ -101,7 +112,8 @@ internal class EditorModel : ViewModel() {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion: (Int) -> Unit,
-                         onBack: () -> Unit, onSave: () -> Unit, error: String?) {
+                         onBack: () -> Unit, onSave: () -> Unit, error: String?,
+                         encodingControls: @Composable () -> Unit = {}) {
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
     var firstRule by rememberSaveable { mutableStateOf(false) }
@@ -135,10 +147,12 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                     SectionHeading(if (preview) "Предпросмотр теста" else "Редактор теста",
                         "Вопросов: ${quiz.questions.size}" + if (quiz.generatedByAi) " · Создано ИИ" else "")
                 }
+                if (draft.document != null) item { encodingControls() }
                 draft.document?.let { document -> item {
                     StudyPanel(tone = PanelTone.SKY) {
                         Text(documentCaption(document))
-                        Text("Найдено вопросов: ${draft.detectedCount ?: quiz.questions.size}")
+                        Text("Найдено ${draft.detectedCount ?: quiz.questions.size} вопросов, ${quiz.questions.sumOf { it.options.size }} вариантов, " +
+                            "${quiz.questions.count { it.correctIndices.isNotEmpty() && it.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }} подтверждённых ответов")
                     }
                 } }
                 if (draft.warnings.isNotEmpty()) item {
@@ -257,5 +271,35 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
             runCatching { EditorRules.validateQuestion(changed) }
                 .onSuccess { onApply(changed) }.onFailure { failure = it.message }
         }, modifier = Modifier.fillMaxWidth()) { Text("Применить") } }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun ImportEncodingControls(editor: EditorModel, repository: QuizRepository) {
+    if (editor.sourceUri == null) return
+    var confirm by remember { mutableStateOf<String?>(null) }
+    confirm?.let { choice ->
+        StudyConfirmation("Перечитать исходный файл?", "Изменения текущего несохранённого импорта будут заменены новым предпросмотром.",
+            "Перечитать", { confirm = null }) {
+            editor.sourceUri?.let { editor.import(repository, it, choice.takeUnless { it == "Авто" }) }
+            confirm = null
+        }
+    }
+    StudyPanel {
+        Text("Кодировка: " + editor.detectedCharset.ifBlank { "автоопределение" })
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            (listOf("Авто") + TextDecoder.choices).forEach { choice ->
+                FilterChip(selected = (editor.importCharset ?: "Авто") == choice,
+                    onClick = { confirm = choice }, enabled = editor.load == null, label = { Text(choice) })
+            }
+        }
+        if (editor.decodedPreview.isNotBlank()) {
+            var show by remember { mutableStateOf(false) }
+            TextButton(onClick = { show = !show }) { Text(if (show) "Скрыть текст" else "Предпросмотр текста") }
+            if (show) Text(editor.decodedPreview, style = MaterialTheme.typography.bodySmall)
+        }
+        editor.load?.let { StudyLoading("Повторное чтение", it.fraction, editor::cancel) }
+        editor.failure?.let { StudyError(it) }
     }
 }

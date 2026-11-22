@@ -97,6 +97,7 @@ class QuizRepository(private val context: Context) {
     internal fun previewImport(
         uri: Uri,
         charset: String? = null,
+        onDecoded: (DecodedText) -> Unit = {},
         progress: (ImportProgress) -> Unit
     ): ImportResult = withDocument(uri) { stream ->
         val details = describe(uri)
@@ -120,13 +121,14 @@ class QuizRepository(private val context: Context) {
             }
             else -> {
                 val decoded = TextDecoder.decode(bytes(counted, details.bytes, ::report), charset)
+                onDecoded(decoded)
                 detectedCharset = decoded.charset
                 confident = decoded.confident
                 preview = decoded.text.take(500)
                 if (format == "json" || decoded.text.trimStart().startsWith("{")) {
                     ParsedQuiz(QuizJson.parse(decoded.text), emptyList())
                 } else {
-                    QuizTextParser.parse(decoded.text, title)
+                    QuizTextParser.parseFrom(title, { report(null) }) { consume -> decoded.text.lineSequence().forEach(consume) }
                 }
             }
         }

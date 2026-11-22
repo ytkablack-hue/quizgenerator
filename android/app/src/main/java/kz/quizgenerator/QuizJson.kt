@@ -42,11 +42,19 @@ object QuizJson {
             }
             val keyIndices = if (item.has("correctIndices") && !item.isNull("correctIndices")) {
                 val raw = item.getJSONArray("correctIndices")
-                (0 until raw.length()).map { raw.getInt(it) }
+                require(raw.length() <= QuizLimits.OPTIONS) { "Слишком много индексов ответов" }
+                (0 until raw.length()).map {
+                    val number = raw.get(it)
+                    require(number is Number && number.toDouble() == number.toInt().toDouble()) {
+                        "Индекс правильного ответа должен быть целым числом"
+                    }
+                    (number as Number).toInt()
+                }
             } else {
                 listOfNotNull(correctIndex)
             }
             require(keyIndices.all { it in options.indices }) { "Неверный индекс правильного ответа" }
+            require(correctIndex == null || correctIndex in keyIndices) { "Противоречивые индексы правильных ответов" }
             val primary = correctIndex ?: keyIndices.firstOrNull()
             require(primary == null || primary in options.indices) { "Неверный индекс правильного ответа" }
             val additional = keyIndices.filter { it != primary }.distinct()
