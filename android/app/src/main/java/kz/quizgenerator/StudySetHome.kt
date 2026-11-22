@@ -45,10 +45,17 @@ import kotlinx.coroutines.*
                 Text("Привет, "+(user?.name?.ifBlank {null} ?: user?.email?.substringBefore('@') ?: "друг"),style=MaterialTheme.typography.headlineSmall)
                 Text("Что будем изучать сегодня?",color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick=onProfile,modifier=Modifier.semantics {contentDescription="Личный кабинет"}) {StudyIcon(Glyph.SETTINGS)}
+            IconButton(onClick=onProfile,modifier=Modifier.semantics {contentDescription="Личный кабинет"}) {StudyIcon(Glyph.PROFILE)}
         }}
         item {OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),label={Text("Поиск учебных наборов")},singleLine=true)}
-        if(all.any {!it.archived} || query.isNotBlank() || trash)item {Button(onClick=onCreate,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {StudyIcon(Glyph.ADD);Spacer(Modifier.width(8.dp));Text("Новый учебный набор")}}
+        item {StudyPanel(tone=PanelTone.SKY,onClick=onCreate) {Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+            StudyIcon(Glyph.ADD,Modifier.size(36.dp));Column(Modifier.weight(1f)){Text("Создать новый набор",style=MaterialTheme.typography.titleLarge);Text("Тема · PDF · DOCX · TXT · Фото",style=MaterialTheme.typography.bodySmall)};Text("›")
+        };StudyPrimary("Создать набор",onClick=onCreate)}}
+        study.exams.filter {!it.date.isBefore(java.time.LocalDate.now())}.minByOrNull {it.date}?.let {exam->item {Text(exam.title+" · "+examCountdown(exam.date),color=MaterialTheme.colorScheme.onSurfaceVariant)}}
+        val today=java.time.LocalDate.now()
+        val todayAttempts=study.attempts.filter {java.time.Instant.ofEpochMilli(it.completedAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()==today}
+        if(todayAttempts.isNotEmpty())item {StudyPanel {SectionHeading("Сегодня",todayAttempts.size.toString()+" завершённых попыток · "+todayAttempts.sumOf {it.score.correct+it.score.incorrect+it.score.skipped+it.score.ungraded}+" вопросов")}}
+        item {SectionHeading("Мои учебные наборы",all.count {!it.archived}.toString()+" активных")}
         if(all.any {it.archived} || trash)item {TextButton(onClick={trash=!trash}) {Text(if(trash)"Вернуться к наборам" else "Корзина · "+all.count {it.archived})}}
         if(state==null)item {StudyLoading("Открываем библиотеку")}
         state?.exceptionOrNull()?.let {item {StudyError(it.message ?: "Не удалось открыть библиотеку наборов");TextButton(onClick={revision++}){Text("Повторить")};TextButton(onClick=onLegacy){Text("Открыть сохранённые тесты")}}}
@@ -58,7 +65,7 @@ import kotlinx.coroutines.*
             StudyIcon(Glyph.LIBRARY)
             SectionHeading(if(query.isNotBlank())"Ничего не найдено" else if(trash)"Корзина пуста" else "Готов к первому набору?",
                 if(query.isNotBlank())"Попробуйте другое название" else "Добавьте материал, выберите способ подготовки и начните заниматься.")
-            if(query.isBlank() && !trash)Button(onClick=onCreate) {Text("Создать первый набор")}
+
         }}
         items(shown,key={it.id}) {set ->
             var menu by remember {mutableStateOf(false)}
@@ -83,6 +90,7 @@ import kotlinx.coroutines.*
                 val last=attempts.maxByOrNull {it.completedAt}
                 Text(last?.let {"Последняя попытка: "+displayDate(it.completedAt)+if(it.score.gradedTotal==0)" · без подтверждённого ключа" else " · "+it.score.correct+" из "+it.score.gradedTotal} ?: "Попыток пока нет")
                 if(set.lastOpened>0)Text("Последнее открытие: "+displayDate(set.lastOpened),style=MaterialTheme.typography.bodySmall)
+                if(!set.archived)OutlinedButton(onClick={open(set)}){Text("Начать подготовку →")}
             }
         }
     }

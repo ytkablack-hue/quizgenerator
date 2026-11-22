@@ -1,3 +1,7 @@
+## Этап 2: Stitch shell завершён
+
+База ec8582b. Тема, авторизация, главная, четыре нижних раздела, наборы и FileAttachmentCard нативные; 19 целевых тестов (AiGeneration/ThemeContrast/StudySetStore/StudySetExport) прошли. Макеты/отступы требуют телефонной визуальной приёмки. Далее режимы/закладки/длительность, Start/Run/Results и трудные карточки; сохранить доступ к плану экзаменов при новой нижней навигации. docs/ai-next-stage.md подготовлен, пока не закоммичен.
+
 # TestHelper 0.7.0 — этап 1
 
 База b599fb1. Генерация разделена на TOPIC/DOCUMENT/TEXT; режим и собственный текст сохраняются отдельно от sourceId. Общий AiGeneration строит и проверяет запрос до сети; тема передаёт пустой material даже при выбранном файле. CreationFlow поддерживает только тему. Миграция черновика 0.6 сохраняет старый текст/документ. Целевые AiGenerationTest/MaterialSlicesTest/AuthClientTest прошли; точное число — в отчёте testDebugUnitTest. Production не менялся.

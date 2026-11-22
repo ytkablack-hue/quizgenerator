@@ -119,8 +119,8 @@ private fun AccountWorkspace(activity: ComponentActivity,auth: AuthClient,accoun
 
 private enum class Page(val title: String, val glyph: Glyph? = null) {
     HOME("Главная", Glyph.HOME), CREATE("Создать", Glyph.ADD), LIBRARY("Библиотека", Glyph.LIBRARY),
-    PREPARATION("Подготовка", Glyph.PLAN), AI("Создать с ИИ"), CARDS("Карточки"), SETTINGS("Настройки"),
-    ACCOUNT("Личный кабинет"), WORKSPACE("Учебный набор"), SOURCE("Источник"), EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
+    PREPARATION("Подготовка", Glyph.PLAN), AI("Создать с ИИ"), CARDS("Карточки", Glyph.CARDS), SETTINGS("Настройки"),
+    ACCOUNT("Профиль", Glyph.PROFILE), WORKSPACE("Учебный набор"), SOURCE("Источник"), EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
 }
 
 private enum class Confirmation { DISCARD_DRAFT, LEAVE_QUIZ, FINISH_QUIZ }
@@ -333,7 +333,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         )
     }
 
-    val tabs = listOf(Page.HOME, Page.CREATE, Page.PREPARATION)
+    val tabs = listOf(Page.HOME, Page.LIBRARY, Page.CARDS, Page.ACCOUNT)
     val mainPage = page in tabs
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -356,8 +356,9 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                 tabs.forEach { tab ->
                     NavigationBarItem(page == tab, onClick = {
                         editor.cancel();activeSetId=null;quizSetReturn=false
+                        if(tab==Page.ACCOUNT)accountReturn=Page.HOME
                         page = tab
-                    }, icon = { StudyIcon(requireNotNull(tab.glyph)) }, label = { Text(tab.title, maxLines = 2) },
+                    }, icon = { StudyIcon(requireNotNull(tab.glyph)) }, label = { Text(if(tab==Page.LIBRARY)"Тесты" else tab.title, maxLines = 2) },
                         colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
                 }
             }
@@ -365,7 +366,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 840.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 14.dp, vertical = 8.dp)) {
                 storageError?.let { StudyError(it); Spacer(Modifier.height(6.dp)) }
                 if (LocalAuth.current.account?.verified == false && page != Page.ACCOUNT) TextButton(onClick={accountReturn=page;page=Page.ACCOUNT}) { Text("Подтвердите почту для доступа к ИИ") }
                 if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")

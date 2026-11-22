@@ -7,7 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -33,7 +33,7 @@ internal fun SoftStudyTheme(mode: String, content: @Composable () -> Unit) {
     }
 }
 
-internal enum class Glyph { HOME, ADD, LIBRARY, PLAN, SETTINGS, FILE, AI, EDIT, CARDS }
+internal enum class Glyph { HOME, ADD, LIBRARY, PLAN, SETTINGS, FILE, AI, EDIT, CARDS, PROFILE, BOOKMARK }
 
 @Composable
 internal fun StudyIcon(glyph: Glyph, modifier: Modifier = Modifier, description: String? = null) {
@@ -67,6 +67,8 @@ internal fun StudyIcon(glyph: Glyph, modifier: Modifier = Modifier, description:
                 line(.16f,.5f,.43f,.41f); line(.43f,.41f,.52f,.13f)
             }
             Glyph.EDIT -> { line(.24f,.76f,.72f,.28f); line(.36f,.84f,.84f,.36f); line(.24f,.76f,.21f,.87f); line(.21f,.87f,.36f,.84f); line(.72f,.28f,.84f,.36f) }
+            Glyph.PROFILE -> {drawCircle(tint,size.minDimension*.15f,Offset(size.width*.5f,size.height*.3f),style=Stroke(stroke));rect(.2f,.58f,.6f,.27f)}
+            Glyph.BOOKMARK -> {line(.27f,.14f,.73f,.14f);line(.27f,.14f,.27f,.87f);line(.73f,.14f,.73f,.87f);line(.27f,.87f,.5f,.68f);line(.5f,.68f,.73f,.87f)}
             Glyph.CARDS -> { rect(.22f,.32f,.62f,.46f); line(.15f,.23f,.75f,.23f); line(.15f,.23f,.15f,.69f) }
         }
     }
@@ -112,4 +114,32 @@ internal fun StudyConfirmation(title: String, description: String, confirm: Stri
     AlertDialog(onDismissRequest = onCancel, title = { Text(title) }, text = { Text(description) },
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirm) } },
         dismissButton = { TextButton(onClick = onCancel) { Text("Отмена") } })
+}
+
+
+@Composable internal fun StudyPrimary(text: String,enabled: Boolean=true,onClick: ()->Unit) {
+    kz.quizgenerator.ui.components.SteamButton(text,enabled=enabled,modifier=Modifier.heightIn(min=52.dp),onClick=onClick)
+}
+@OptIn(ExperimentalLayoutApi::class)
+@Composable internal fun FileAttachmentCard(record: MaterialRecord,selected: Boolean=false,onOpen: ()->Unit,
+    onRecognize: ()->Unit,onChoose: ()->Unit,onDetach: ()->Unit,detachLabel: String="Открепить") {
+    var menu by androidx.compose.runtime.remember {androidx.compose.runtime.mutableStateOf(false)}
+    StudyPanel(tone=if(selected)PanelTone.SKY else PanelTone.PLAIN) {
+        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.small) {Column(Modifier.padding(12.dp),horizontalAlignment=Alignment.CenterHorizontally){StudyIcon(Glyph.FILE);Text(record.name.substringAfterLast('.',record.format).uppercase().take(5),style=MaterialTheme.typography.labelSmall)}}
+            Column(Modifier.weight(1f)) {Text(record.name,style=MaterialTheme.typography.titleMedium);Text(fileSizeLabel(record.bytes),style=MaterialTheme.typography.bodySmall);Text("Обработан локально · "+record.characters+" символов",style=MaterialTheme.typography.bodySmall)}
+            Box {IconButton(onClick={menu=true},modifier=Modifier.semantics {contentDescription="Действия файла "+record.name}){Text("⋮")}
+                DropdownMenu(menu,{menu=false}) {DropdownMenuItem(text={Text("Открыть")},onClick={menu=false;onOpen()});DropdownMenuItem(text={Text(detachLabel)},onClick={menu=false;onDetach()})}}
+        }
+        if(record.notice.isNotBlank())Text(record.notice,style=MaterialTheme.typography.bodySmall)
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick=onOpen){Text("Просмотр")};TextButton(onClick=onRecognize){Text("Распознать готовые вопросы")}
+            TextButton(onClick=onChoose){Text(if(selected)"Выбран для ИИ" else "Выбрать для ИИ")}
+        }
+    }
+}
+internal fun fileSizeLabel(bytes: Long): String = when {
+    bytes>=1024*1024 -> String.format(java.util.Locale.ROOT,"%.1f МиБ",bytes/(1024.0*1024))
+    bytes>=1024 -> String.format(java.util.Locale.ROOT,"%.1f КиБ",bytes/1024.0)
+    else -> "$bytes байт"
 }

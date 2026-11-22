@@ -6,7 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-// Original COIN palette, with matching dark surfaces and readable text.
+// Stitch palette: pressed blue for readable small white labels; sky blue for accents.
 val SteamNavy = Color(0xFF1B2838)
 val SteamGreen: Color @Composable get() = MaterialTheme.colorScheme.primary
 val SteamBlue: Color @Composable get() = MaterialTheme.colorScheme.secondary
@@ -22,14 +22,18 @@ val SteamWarning: Color @Composable get() = MaterialTheme.colorScheme.error
 val SteamPaleWarning: Color @Composable get() = MaterialTheme.colorScheme.errorContainer
 
 object TestHelperPalettes {
+    val accent=Color(0xFF168BE8)
+    val success=Color(0xFF10B981)
+    val warning=Color(0xFFF59E0B)
+    val alert=Color(0xFFEF4444)
     val light=lightColorScheme(
-        primary=Color(0xFF0075BF),onPrimary=Color.White,secondary=Color(0xFF236A98),onSecondary=Color.White,
+        primary=Color(0xFF1274C2),onPrimary=Color.White,secondary=Color(0xFF168BE8),onSecondary=Color(0xFF17243B),
         tertiary=Color(0xFF426583),onTertiary=Color.White,
-        background=Color(0xFFF8FAFD),surface=Color.White,surfaceContainer=Color(0xFFF0F4F9),
-        onBackground=Color(0xFF18293C),onSurface=Color(0xFF18293C),onSurfaceVariant=Color(0xFF506174),
-        primaryContainer=Color(0xFFE1F2FF),onPrimaryContainer=Color(0xFF063A60),
-        secondaryContainer=Color(0xFFEBF5FC),onSecondaryContainer=Color(0xFF163B56),
-        outline=Color(0xFF738397),outlineVariant=Color(0xFFDCE5EE)
+        background=Color(0xFFF8FAFC),surface=Color.White,surfaceContainer=Color(0xFFF0F4F9),
+        onBackground=Color(0xFF17243B),onSurface=Color(0xFF17243B),onSurfaceVariant=Color(0xFF64748B),
+        primaryContainer=Color(0xFFEBF5FF),onPrimaryContainer=Color(0xFF063A60),
+        secondaryContainer=Color(0xFFF0F7FF),onSecondaryContainer=Color(0xFF163B56),
+        outline=Color(0xFF738397),outlineVariant=Color(0xFFE2E8F0)
     )
     val dark=darkColorScheme(
         primary=Color(0xFF85CAFF),onPrimary=Color(0xFF003352),secondary=Color(0xFF9ACAF0),onSecondary=Color(0xFF10364E),
@@ -46,5 +50,6 @@ fun SteamTheme(mode: String="light",content: @Composable ()->Unit) {
     val dark=when(mode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     MaterialTheme(colorScheme=if(dark)TestHelperPalettes.dark else TestHelperPalettes.light,
         shapes=Shapes(small=androidx.compose.foundation.shape.RoundedCornerShape(12.dp),medium=androidx.compose.foundation.shape.RoundedCornerShape(16.dp),large=androidx.compose.foundation.shape.RoundedCornerShape(22.dp)),
+        typography=Typography(headlineLarge=MaterialTheme.typography.headlineLarge.copy(fontWeight=androidx.compose.ui.text.font.FontWeight.Bold),headlineSmall=MaterialTheme.typography.headlineSmall.copy(fontWeight=androidx.compose.ui.text.font.FontWeight.Bold),titleMedium=MaterialTheme.typography.titleMedium.copy(fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold)),
         content=content)
 }

@@ -24,7 +24,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     LaunchedEffect(repository) {model.bind(repository)}
     var currentSet by remember(studySetId) {mutableStateOf<StudySet?>(null)}
     var setReady by remember(studySetId) {mutableStateOf(studySetId==null)}
-    LaunchedEffect(studySetId,model.records,model.ready,model.setRevision) {
+    LaunchedEffect(studySetId,model.records,model.ready,model.setRevision,model.draft.inputMode) {
         if(studySetId!=null && model.ready)try {
             val set=withContext(Dispatchers.IO){repository.sets.list().first {it.id==studySetId && !it.archived}}
             currentSet=set;setReady=true
@@ -101,7 +101,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     if(viewer && record!=null && model.text.isNotEmpty())MaterialViewer(record,model.text,draft.previewPage,
         {model.update(model.draft.copy(previewPage=it))},{viewer=false},sourceFile=repository.materials.source(record.id))
     StudyColumn("Учиться с ИИ",onBack) {
-        Text("Документы хранятся на устройстве. В облако отправляется только явно выбранный фрагмент.")
+        StudyPanel(tone=PanelTone.SKY){Text("Источник и метод подготовки",style=MaterialTheme.typography.titleMedium);Text("Файлы обрабатываются локально. Только после подтверждения выбранный текст передаётся через Cloudflare в Gemini.",style=MaterialTheme.typography.bodySmall)}
         if(auth.account?.verified!=true)TextButton(onClick=onAccount) {Text("Подтвердить почту для Gemini")}
         FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {AiTask.entries.forEach {task -> FilterChip(mode==task,{mode=task;model.update(draft.copy(part=0))},label={Text(task.title)},enabled=!busy)}}
         if(mode!=AiTask.REVIEW) {
@@ -109,16 +109,10 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
             if(draft.inputMode==AiInputMode.DOCUMENT) {
             OutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
             if(visibleRecords.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
-            visibleRecords.take(documentLimit).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
-                Text(item.name,style=MaterialTheme.typography.titleMedium)
-                Text(item.format.uppercase()+" · "+item.bytes+" байт · "+item.characters+" символов · Обработан")
-                if(item.notice.isNotBlank())Text(item.notice)
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    TextButton(enabled=!busy,onClick={model.select(item.id)}) {Text(if(item.id==draft.sourceId)"Выбран" else "Выбрать")}
-                    TextButton(enabled=model.progress==null && !busy,onClick={if(item.id!=draft.sourceId)model.select(item.id);viewer=true}) {Text("Просмотр")}
-                    TextButton(enabled=!busy,onClick={job=scope.launch {try {saveQuiz(withContext(Dispatchers.IO) {repository.questionsFromMaterial(item.id).quiz})}catch(e: CancellationException){throw e}catch(e: Exception){failure=e.message ?: "Готовые вопросы не найдены. Используйте создание с ИИ"}finally{job=null}}}) {Text("Открыть готовые вопросы")}
-                }
-            }}
+            visibleRecords.take(documentLimit).forEach {item ->FileAttachmentCard(item,item.id==draft.sourceId,
+                onChoose={model.select(item.id)},onOpen={if(item.id!=draft.sourceId)model.select(item.id);viewer=true},
+                onRecognize={if(!busy)job=scope.launch {try {saveQuiz(withContext(Dispatchers.IO){repository.questionsFromMaterial(item.id).quiz})}catch(e: CancellationException){throw e}catch(e: Exception){failure=e.message ?: "Готовые вопросы не найдены"}finally{job=null}}},
+                onDetach={if(!busy){model.select(null);notice="Выбор снят. Полный документ остаётся в библиотеке"}},detachLabel="Снять выбор")}
             if(visibleRecords.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(visibleRecords.size)}) {Text("Показать ещё · всего "+visibleRecords.size)}
             if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Снять выбор документа")}
             }
@@ -146,7 +140,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                 Row {Checkbox(rangeConfirmed,{rangeConfirmed=it});Text("Понимаю, что это неполный блок; проверю контекст и результат")}
             }
         }
-        Button(enabled=model.ready && setReady && !busy && model.progress==null && auth.account?.verified==true && (mode==AiTask.REVIEW || draft.count.toIntOrNull() in 1..25),onClick=::prepare,modifier=Modifier.fillMaxWidth()) {Text("Проверить и отправить 1 запрос")}
+        StudyPrimary(if(mode==AiTask.CARDS)"Создать карточки с ИИ" else if(mode==AiTask.REVIEW)"Разобрать ошибки с ИИ" else "Создать тест с ИИ",enabled=model.ready && setReady && !busy && model.progress==null && auth.account?.verified==true && (mode==AiTask.REVIEW || draft.count.toIntOrNull() in 1..AiLimits.COUNT),onClick=::prepare)
         if(model.pendingCards.isNotEmpty() && mode==AiTask.CARDS) {
             Text("Карточек создано: "+model.pendingCards.size+" · ответы ИИ требуют проверки")
             model.pendingCards.forEach {card->StudyPanel {Text(card.front);Text(card.back)}}

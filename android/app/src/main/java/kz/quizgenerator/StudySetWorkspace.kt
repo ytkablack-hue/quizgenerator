@@ -33,7 +33,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
     }
     val set=state?.getOrNull()
     LaunchedEffect(set?.id,model.ready,model.records) {
-        if(set!=null && model.ready && model.draft.sourceId !in set.materialIds)model.select(set.materialIds.firstOrNull())
+        if(set!=null && model.ready) {val next=AiGeneration.initialDocument(model.draft.inputMode,model.draft.sourceId,set.materialIds);if(next!=model.draft.sourceId)model.select(next)}
         if(set!=null && !notesLoaded){notes=set.notes;notesLoaded=true}
     }
     val dirty=set!=null && notesLoaded && notes!=set.notes
@@ -59,7 +59,9 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
         state?.exceptionOrNull()?.let {StudyError(it.message ?: "Не удалось открыть набор");TextButton(onClick={revision++}){Text("Повторить")}}
         if(set!=null) {
             val banks=quizzes.filter {it.id in set.quizIds};val cards=WorkspaceIndex.cards(set,study);val history=WorkspaceIndex.attempts(set,study)
+            StudyPanel {Text(set.title,style=MaterialTheme.typography.headlineSmall);Text(set.materialIds.size.toString()+" материалов · "+banks.sumOf {it.questions.size}+" вопросов · "+cards.size+" карточек",style=MaterialTheme.typography.bodySmall)}
             ScrollableTabRow(selectedTabIndex=tab.ordinal,edgePadding=0.dp) {SetTab.entries.forEach {item->Tab(tab==item,{tab=item},text={Text(item.title)})}}
+            if(tab==SetTab.MATERIAL)FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={if(banks.isNotEmpty())onQuiz(banks.first()) else onAi("quizzes")}){Text("Быстрый тест")};OutlinedButton(onClick={tab=SetTab.CARDS}){Text("Учить карточки")}}
             error?.let {StudyError(it)}
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when(tab) {
@@ -68,18 +70,11 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                         model.progress?.let {item {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}}
                         model.error?.let {item {StudyError(it)}}
                         if(set.materialIds.isEmpty())item {StudyPanel(tone=PanelTone.SKY) {StudyIcon(Glyph.FILE);Text("Здесь будет исходный материал");Text("Сохраните полный документ локально. Готовые вопросы можно открыть без Gemini.")}}
-                        items(model.records.filter {it.id in set.materialIds},key={it.id}) {record->StudyPanel {
-                            StudyIcon(Glyph.FILE);Text(record.name,style=MaterialTheme.typography.titleMedium)
-                            Text(record.format.uppercase()+" · "+record.bytes+" байт · Обработан");Text("Сохранено "+record.characters+" символов")
-                            if(record.notice.isNotBlank())Text(record.notice)
-                            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                                TextButton(enabled=model.progress==null,onClick={model.select(record.id);viewer=true}){Text("Открыть материал")}
-                                TextButton(onClick={scope.launch {try {val quiz=withContext(Dispatchers.IO){repository.questionsFromMaterial(record.id).quiz};onImportQuiz(quiz)}
-                                    catch(e: CancellationException){throw e}catch(e: Exception){error=e.message ?: "Готовые вопросы не найдены"}}}){Text("Готовые вопросы")}
-                                TextButton(onClick={model.select(record.id);onAi("quizzes")}){Text("Выбрать фрагмент для ИИ")}
-                                TextButton(onClick={scope.launch {try {withContext(Dispatchers.IO){repository.sets.update(id){it.copy(materialIds=it.materialIds-record.id)}};revision++}catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось открепить документ"}}}){Text("Открепить")}
-                            }
-                        }}
+                        items(model.records.filter {it.id in set.materialIds},key={it.id}) {record->FileAttachmentCard(record,
+                            onOpen={model.select(record.id);viewer=true},
+                            onRecognize={scope.launch {try {val quiz=withContext(Dispatchers.IO){repository.questionsFromMaterial(record.id).quiz};onImportQuiz(quiz)}catch(e: CancellationException){throw e}catch(e: Exception){error=e.message ?: "Готовые вопросы не найдены"}}},
+                            onChoose={model.update(model.draft.copy(inputMode=AiInputMode.DOCUMENT));model.select(record.id);onAi("quizzes")},
+                            onDetach={scope.launch {try {withContext(Dispatchers.IO){repository.sets.update(id){it.copy(materialIds=it.materialIds-record.id)}};revision++}catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось открепить документ"}}})}
                         item {Text("Открепление не удаляет оригинал: материал остаётся в локальной библиотеке.",style=MaterialTheme.typography.bodySmall)}
                         item {SectionHeading("Моя заметка",if(dirty)"Есть несохранённые изменения" else "Только на этом устройстве")}
                         item {OutlinedTextField(notes,{if(it.length<=20000)notes=it else error="Заметка длиннее20000символов"},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=8,label={Text("Заметка по материалу")})}

@@ -32,14 +32,14 @@ fun SteamTopBar(title: String, modifier: Modifier = Modifier, onBack: (() -> Uni
         verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) { TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp), modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("‹", color = SteamText, fontSize = 27.sp) }; Spacer(Modifier.width(8.dp)) }
         else {TestHelperMark(Modifier.size(28.dp));Spacer(Modifier.width(10.dp))}
-        Text(title, Modifier.weight(1f), color = SteamText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, Modifier.weight(1f), color = SteamText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         trailing?.let { trailingContent -> CompositionLocalProvider(LocalContentColor provides SteamText) { Row(content = trailingContent) } }
     }
 }
 
 @Composable
 fun SteamCard(modifier: Modifier = Modifier, background: Color = SteamSurface, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = background),
+    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = background),
         border = BorderStroke(1.dp, SteamBorder), elevation = CardDefaults.cardElevation(0.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
@@ -51,9 +51,9 @@ fun SteamButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = 
         SteamTone.TEXT -> TextButton(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled) { Text(text, fontWeight = FontWeight.SemiBold) }
         SteamTone.PALE -> OutlinedButton(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled,
             colors = ButtonDefaults.outlinedButtonColors(containerColor = SteamPaleBlue, contentColor = SteamText),
-            border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(14.dp)) { Text(text, fontWeight = FontWeight.SemiBold) }
-        else -> Button(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled, shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = if (tone == SteamTone.BLUE) SteamBlue else SteamGreen)) { Text(text, fontWeight = FontWeight.Bold) }
+            border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(16.dp)) { Text(text, fontWeight = FontWeight.SemiBold) }
+        else -> Button(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled, shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = SteamGreen)) { Text(text, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -69,7 +69,7 @@ fun SteamField(label: String, value: String, onValueChange: (String) -> Unit, mo
             keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType,
                 imeAction = if (password) ImeAction.Done else if (singleLine) ImeAction.Next else ImeAction.Default),
             decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, SteamBorder, RoundedCornerShape(14.dp))
-                .background(SteamSurface, RoundedCornerShape(14.dp)).defaultMinSize(minHeight = if (singleLine) 48.dp else 90.dp)
+                .background(SteamSurface, RoundedCornerShape(14.dp)).defaultMinSize(minHeight = if (singleLine) 52.dp else 90.dp)
                 .padding(horizontal = 10.dp, vertical = 8.dp)) { if (value.isEmpty() && hint.isNotEmpty()) Text(hint, color = SteamMuted); inner() } })
     }
 }
@@ -86,6 +86,6 @@ fun SteamField(label: String, value: String, onValueChange: (String) -> Unit, mo
 
 @Composable fun SteamPage(title: String, onBack: (() -> Unit)? = null, showHeader: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().background(SteamBackground)) { if(showHeader)SteamTopBar(title, onBack = onBack, applyStatusBarInsets = false)
-        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
     }
 }

@@ -50,20 +50,24 @@ internal fun AuthEntryScreen() {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max=480.dp).fillMaxWidth().safeDrawingPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal=22.dp,vertical=20.dp),
             verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                kz.quizgenerator.ui.components.TestHelperMark(Modifier.size(52.dp))
-                Column {Text("TestHelper",style=MaterialTheme.typography.headlineSmall);Text("Твои знания. Твой прогресс.",style=MaterialTheme.typography.bodySmall)}
+            Column(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surface,tonalElevation=1.dp) {kz.quizgenerator.ui.components.TestHelperMark(Modifier.padding(20.dp).size(if(mode=="welcome")56.dp else 32.dp))}
+                Text("TestHelper",style=MaterialTheme.typography.headlineLarge)
+                Text("Твои знания. Твой прогресс.",color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.height(8.dp))
-            Text(when(mode){"login"->"С возвращением";"signup"->"Начнём подготовку";else->"К экзаменам — с уверенностью"},style=MaterialTheme.typography.headlineMedium)
-            Text("Создавай тесты, запоминай материал и готовься к экзаменам",color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(mode=="welcome") {
+                listOf(Triple(Glyph.FILE,"Материал всегда под рукой","PDF, Word, текст и фото — локально"),Triple(Glyph.AI,"Тесты и карточки","По теме, документу или своему тексту"),Triple(Glyph.PLAN,"Подготовка без догадок","История, ошибки и сохранённый прогресс")).forEach {(icon,title,detail)->
+                    StudyPanel {Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.small){StudyIcon(icon,Modifier.padding(12.dp))};Column(Modifier.weight(1f)){Text(title,style=MaterialTheme.typography.titleMedium);Text(detail,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
+                }
+                Spacer(Modifier.height(12.dp))
+            } else Text(if(mode=="signup")"Создать аккаунт" else "С возвращением",style=MaterialTheme.typography.headlineSmall)
             GoogleBrandButton(!busy) {run {
                 val credential=GoogleCredentials.obtain(context,auth.googleClientId())
                 if(credential==null)"Вход Google отменён" else {auth.signInGoogle(credential);null}
             }}
             if(mode=="welcome") {
-                OutlinedButton(enabled=!busy,onClick={mode="login";error=null},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Text("Войти по электронной почте")}
-                TextButton(enabled=!busy,onClick={mode="signup";error=null},modifier=Modifier.fillMaxWidth()) {Text("Создать аккаунт")}
+                StudyPrimary("Войти по почте",enabled=!busy,onClick={mode="login";error=null})
+                TextButton(enabled=!busy,onClick={mode="signup";error=null},modifier=Modifier.fillMaxWidth()) {Text("Нет аккаунта? Зарегистрироваться")}
                 Text("После первого входа сохранённые материалы доступны без интернета.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 OutlinedTextField(email,{email=it.take(254)},label={Text("Email")},singleLine=true,enabled=!busy,modifier=Modifier.fillMaxWidth(),keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Email))
