@@ -14,7 +14,7 @@ internal data class StudySettings(
     val dark: Boolean = false,
     val server: String = ProductionConfig.SERVER,
     val accessToken: String = "",
-    val theme: String = if (dark) "dark" else "system"
+    val theme: String = if (dark) "dark" else "light"
 )
 
 internal data class Flashcard(

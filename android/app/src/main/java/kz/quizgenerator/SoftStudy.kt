@@ -24,7 +24,7 @@ internal fun SoftStudyTheme(mode: String, content: @Composable () -> Unit) {
         androidx.compose.runtime.SideEffect {
             (context as? android.app.Activity)?.let { activity ->
                 androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-                    isAppearanceLightStatusBars = false // The shared top bar is navy in both themes.
+                    isAppearanceLightStatusBars = !dark
                     isAppearanceLightNavigationBars = !dark
                 }
             }
@@ -78,7 +78,7 @@ internal enum class PanelTone { PLAIN, LAVENDER, SKY }
 internal fun StudyPanel(modifier: Modifier = Modifier, tone: PanelTone = PanelTone.PLAIN,
                         onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val click = if (onClick == null) modifier else modifier.clickable(onClick = onClick)
-    kz.quizgenerator.ui.components.SteamCard(click) { content() }
+    kz.quizgenerator.ui.components.SteamCard(click,when(tone){PanelTone.SKY->MaterialTheme.colorScheme.secondaryContainer;PanelTone.LAVENDER->MaterialTheme.colorScheme.primaryContainer;else->MaterialTheme.colorScheme.surface}) { content() }
 }
 
 @Composable

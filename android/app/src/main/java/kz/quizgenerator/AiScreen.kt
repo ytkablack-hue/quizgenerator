@@ -30,6 +30,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     var rangeStart by rememberSaveable(model.draft.sourceId,model.draft.part) {mutableStateOf("")}
     var rangeEnd by rememberSaveable(model.draft.sourceId,model.draft.part) {mutableStateOf("")}
     var rangeConfirmed by rememberSaveable(model.draft.sourceId,model.draft.part,rangeStart,rangeEnd) {mutableStateOf(false)}
+    var documentLimit by rememberSaveable {mutableIntStateOf(20)}
     val draft=model.draft;val record=model.records.firstOrNull {it.id==draft.sourceId}
     val reviewText=remember(attempt) {attempt?.let {AiClient.reviewText(it)}.orEmpty()}
     val reviewParts=remember(reviewText) {MaterialSlices.plan(reviewText)}
@@ -82,7 +83,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         if(mode!=AiTask.REVIEW) {
             OutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
             if(model.records.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
-            model.records.take(50).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
+            model.records.take(documentLimit).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
                 Text(item.name,style=MaterialTheme.typography.titleMedium)
                 Text(item.format.uppercase()+" · "+item.bytes+" байт · "+item.characters+" символов · Обработан")
                 if(item.notice.isNotBlank())Text(item.notice)
@@ -92,7 +93,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                     TextButton(enabled=!busy,onClick={job=scope.launch {try {saveQuiz(withContext(Dispatchers.IO) {repository.questionsFromMaterial(item.id).quiz})}catch(e: CancellationException){throw e}catch(e: Exception){failure=e.message ?: "Готовые вопросы не найдены. Используйте создание с ИИ"}finally{job=null}}}) {Text("Открыть готовые вопросы")}
                 }
             }}
-            if(model.records.size>50)Text("Показаны50последних документов. Всего: "+model.records.size)
+            if(model.records.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(model.records.size)}) {Text("Показать ещё · всего "+model.records.size)}
             if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Использовать только тему и собственный текст")}
             StudyField(draft.topic,{model.update(draft.copy(topic=it))},"Тема")
             OutlinedTextField(draft.extra,{model.update(draft.copy(extra=it))},modifier=Modifier.fillMaxWidth(),label={Text("Дополнительный текст — необязательно")},minLines=2,maxLines=5)

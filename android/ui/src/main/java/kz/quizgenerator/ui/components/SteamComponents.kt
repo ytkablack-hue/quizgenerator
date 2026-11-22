@@ -28,31 +28,31 @@ enum class SteamTone { GREEN, BLUE, PALE, TEXT }
 @Composable
 fun SteamTopBar(title: String, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null,
                 trailing: (@Composable RowScope.() -> Unit)? = null, applyStatusBarInsets: Boolean = true) {
-    Row(modifier.fillMaxWidth().background(SteamNavy).then(if (applyStatusBarInsets) Modifier.statusBarsPadding() else Modifier).heightIn(min = 56.dp).padding(horizontal = 14.dp),
+    Row(modifier.fillMaxWidth().background(SteamSurface).then(if (applyStatusBarInsets) Modifier.statusBarsPadding() else Modifier).heightIn(min = 56.dp).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        if (onBack != null) { TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp), modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("‹", color = Color.White, fontSize = 27.sp) }; Spacer(Modifier.width(8.dp)) }
-        else { Surface(color = SteamAccent, shape = RoundedCornerShape(5.dp), modifier = Modifier.size(22.dp)) { Box(contentAlignment = Alignment.Center) { Text("✓", color = Color.White, fontWeight = FontWeight.Bold) } }; Spacer(Modifier.width(9.dp)) }
-        Text(title, Modifier.weight(1f), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        trailing?.let { trailingContent -> CompositionLocalProvider(LocalContentColor provides Color.White) { Row(content = trailingContent) } }
+        if (onBack != null) { TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp), modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("‹", color = SteamText, fontSize = 27.sp) }; Spacer(Modifier.width(8.dp)) }
+        else {TestHelperMark(Modifier.size(28.dp));Spacer(Modifier.width(10.dp))}
+        Text(title, Modifier.weight(1f), color = SteamText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        trailing?.let { trailingContent -> CompositionLocalProvider(LocalContentColor provides SteamText) { Row(content = trailingContent) } }
     }
 }
 
 @Composable
-fun SteamCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = SteamSurface),
+fun SteamCard(modifier: Modifier = Modifier, background: Color = SteamSurface, content: @Composable ColumnScope.() -> Unit) {
+    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = background),
         border = BorderStroke(1.dp, SteamBorder), elevation = CardDefaults.cardElevation(0.dp)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp), content = content)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
 
 @Composable
 fun SteamButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, tone: SteamTone = SteamTone.GREEN, onClick: () -> Unit) {
     when (tone) {
-        SteamTone.TEXT -> TextButton(onClick, modifier.fillMaxWidth(), enabled = enabled) { Text(text, fontWeight = FontWeight.SemiBold) }
-        SteamTone.PALE -> OutlinedButton(onClick, modifier.fillMaxWidth(), enabled = enabled,
+        SteamTone.TEXT -> TextButton(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled) { Text(text, fontWeight = FontWeight.SemiBold) }
+        SteamTone.PALE -> OutlinedButton(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled,
             colors = ButtonDefaults.outlinedButtonColors(containerColor = SteamPaleBlue, contentColor = SteamText),
-            border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(7.dp)) { Text(text, fontWeight = FontWeight.SemiBold) }
-        else -> Button(onClick, modifier.fillMaxWidth(), enabled = enabled, shape = RoundedCornerShape(7.dp),
+            border = BorderStroke(0.dp, Color.Transparent), shape = RoundedCornerShape(14.dp)) { Text(text, fontWeight = FontWeight.SemiBold) }
+        else -> Button(onClick, modifier.fillMaxWidth().heightIn(min=48.dp), enabled = enabled, shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = if (tone == SteamTone.BLUE) SteamBlue else SteamGreen)) { Text(text, fontWeight = FontWeight.Bold) }
     }
 }
@@ -68,8 +68,8 @@ fun SteamField(label: String, value: String, onValueChange: (String) -> Unit, mo
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType,
                 imeAction = if (password) ImeAction.Done else if (singleLine) ImeAction.Next else ImeAction.Default),
-            decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, SteamBorder, RoundedCornerShape(7.dp))
-                .background(SteamSurface, RoundedCornerShape(7.dp)).defaultMinSize(minHeight = if (singleLine) 48.dp else 90.dp)
+            decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, SteamBorder, RoundedCornerShape(14.dp))
+                .background(SteamSurface, RoundedCornerShape(14.dp)).defaultMinSize(minHeight = if (singleLine) 48.dp else 90.dp)
                 .padding(horizontal = 10.dp, vertical = 8.dp)) { if (value.isEmpty() && hint.isNotEmpty()) Text(hint, color = SteamMuted); inner() } })
     }
 }

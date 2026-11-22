@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             CompositionLocalProvider(LocalAuth provides auth) {
                 val account=auth.account
-                if(account==null)SoftStudyTheme("system") { AuthEntryScreen() }
+                if(account==null)SoftStudyTheme("light") { AuthEntryScreen() }
                 else key(account.uid) {
                     val editor=remember(account.uid) { ViewModelProvider(this@MainActivity).get("editor:"+account.uid,EditorModel::class.java) }
                     DisposableEffect(editor) { onDispose { editor.cancel() } }
