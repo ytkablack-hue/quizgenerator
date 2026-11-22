@@ -17,6 +17,8 @@ internal class AiClient(private val settings: StudySettings, private val authTok
     }
 
     suspend fun configured(): Boolean = request("status").getBoolean("configured")
+    suspend fun capabilities(): Set<String> {val value=request("status");val a=value.optJSONArray("capabilities") ?: return setOf("quizzes","flashcards","review","extract");return (0 until a.length()).map {a.getString(it)}.toSet()}
+    suspend fun batch(route: String,body: JSONObject,requestId: String): JSONObject {require(route in listOf("quizzes","lectures","answers"));require(UUID.fromString(requestId).toString()==requestId);return request(route,body,requestId)}
 
     suspend fun quiz(topic: String, material: String, difficulty: String, count: Int): Quiz {
         val result = request("quizzes", input(topic, material, difficulty, count))
@@ -53,7 +55,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
     private fun input(topic: String, material: String, difficulty: String, count: Int) =
         AiGeneration.input(topic,material,difficulty,count)
 
-    private suspend fun request(route: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun request(route: String, body: JSONObject? = null,requestId: String?=null): JSONObject = withContext(Dispatchers.IO) {
         if(body!=null)AiRequestRules.validate(route,body)
         val base = baseUri(endpoint)
         val token = authToken()
@@ -68,7 +70,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Authorization", "Bearer $token")
             if (body != null) {
-                connection.setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                connection.setRequestProperty("X-Request-ID", requestId ?: UUID.randomUUID().toString())
                 val encoded = body.toString().toByteArray(Charsets.UTF_8)
                 connection.requestMethod = "POST"
                 connection.doOutput = true
@@ -91,9 +93,11 @@ internal class AiClient(private val settings: StudySettings, private val authTok
             }.orEmpty()
             if (status !in 200..299) {
                 val detail = runCatching { JSONObject(data).optString("detail").take(180) }.getOrNull()
-                error(when (status) {
+                throw AiServerFailure(status,when (status) {
                     401 -> "Войдите в аккаунт снова"
                     403 -> "Подтвердите электронную почту в личном кабинете"
+                    404 -> "Новый серверный маршрут пока недоступен"
+                    409 -> "Этот запрос уже принят сервером; результат не возвращён. Нужна проверка перед повтором"
                     429 -> "Лимит ИИ исчерпан. Попробуйте позже"
                     502, 503, 504 -> "ИИ временно недоступен. Попробуйте позже"
                     else -> detail?.ifBlank { null } ?: "Сервер вернул ошибку $status"

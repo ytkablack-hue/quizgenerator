@@ -79,6 +79,16 @@ internal class AiDraftStore(private val file: File) {
 
 internal object AiRequestRules {
     fun validate(route: String,body: JSONObject) {
+        if(route=="lectures") {
+            require(body.optString("topic").length<=160 && body.optString("material").length<=12000 && (body.optString("topic").isNotBlank() || body.optString("material").isNotBlank()))
+            require(body.optString("level") in listOf("school","university","advanced") && body.optString("length") in listOf("brief","detailed"))
+            require(body.getInt("sectionCount") in 1..100 && body.getInt("sectionIndex") in 1..body.getInt("sectionCount"))
+        }
+        if(route=="answers") {
+            val a=body.getJSONArray("questions");require(a.length() in 1..25);val ids=mutableSetOf<String>();var chars=body.optString("context").length
+            for(i in 0 until a.length()){val q=a.getJSONObject(i);require(ids.add(q.getString("id")) && q.getString("id").length in 1..100);val options=q.getJSONArray("options");require(options.length() in 2..64 && q.getString("text").length in 1..6000);chars+=q.getString("text").length;for(k in 0 until options.length()){require(options.getString(k).length in 1..4000);chars+=options.getString(k).length}}
+            require(chars<=12000)
+        }
         if(route in setOf("quizzes","flashcards","review")) {
             require(body.optString("material").length<=AiLimits.MATERIAL) {"Материал запроса больше 12000 символов"}
             if(route!="review") {
