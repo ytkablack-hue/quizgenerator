@@ -1,17 +1,17 @@
-# TestHelper 0.7.0 Beta — контрольная точка
+# TestHelper — главная после замечаний к 0.7.0
 
-Проект C:/Projects/quizgenerator, ветка feature/android-mvp. База 0.6.0 b599fb1. Этапы: ec8582b (три режима AI), 3d8b0d1 (Stitch shell), 52bbeae (режимы/закладки/время/карточки), a50d88a3f88b0613df9c5edac2730360c5ee24a3 — финальные исходники APK (маршрутизация, cloud provenance и versionCode9). Следующий коммит содержит только итоговую документацию.
+Ветка feature/android-mvp, база05266af. Изменены только StudySetHome.kt, оформление шапки/нижней навигации/размер главной в MainActivity.kt, debug-only HomeStitchPreviews.kt и HomePresentationTest.kt. Остальные шесть экранов, общие SoftStudy/SteamComponents/SteamTheme, storage/auth/AI/backend/квоты не менялись.
 
-Внедрены нативные экраны Stitch7–13. AiGeneration/AiInputMode отделены от UI, TOPIC не включает документ. Черновик хранит режим/свой текст независимо от sourceId; явный выбор документа учитывается до окончания асинхронного bind. Экзамен не раскрывает ключи/подсказки, сохраняет режим/закладки/таймер/время; старые попытки мигрируют без выдуманной длительности. Есть переход/повтор закладок, трудные карточки и карточки из подтверждённых ошибок. Генерация всегда CLOUD_AI независимо от присланной evidence.
+Главная следует композиции testhelper_8: компактная шапка с реальными профилем/историей, полный приветственный текст/контекст, поиск48dp без floating label, реальный опциональный прогресс, один blue create-block, компактные наборы/меню/счётчики/«Учить». Пустые строки истории убраны. Rename/export/archive/restore/open/search сохранены, поведение хранилища не менялось. У навигации64dp минимум плюс системный inset, четыре маршрута прежние. У текста свободный перенос и системный fontScale. Спецификация и сравнение размеров: docs/home-stitch-review.md.
 
-Финально выполнены 173 Android unit-теста (0 ошибок/пропусков), 34 локальных Worker security tests, Lint (0 ошибок,7 предупреждений), assembleDebug. Версия0.7.0-beta/code9; package kz.quizgenerator, min26/target36. apksigner v2/прежний сертификат и zipalign -P16 прошли.
-APK: C:/Projects/quizgenerator/android/app/build/outputs/apk/debug/app-debug.apk
-Размер51214575байт; SHA25640f6ed4b871b3bfc5be99f33ea9c4f1f709e4e36af3b89301676abd64920ad40.
+178 Android unit-тестов,0 ошибок/пропусков. Lint0ошибок/7прежних предупреждений. assembleDebug успешен; подпись прежняя/zipalign16КБ проверены. APK: C:/Projects/quizgenerator/android/app/build/outputs/apk/debug/app-debug.apk,51265249байт, SHA256711422bde517cfd42e68a911d596797800b772a932d31fc13811197ee33d6078. versionName0.7.0-beta/code9 не повышались. Новый Release не создан, опубликованный0.7.0 остаётся прежним.
 
-Далее — телефонный checklist docs/REMAINING.md. Разработка и автоматические проверки0.7 завершены, исходники отправлены в GitHub. Отчёт проверки: docs/testhelper-0.7.0-verification.md. План AI: docs/ai-next-stage.md; карта Stitch: docs/stitch-0.7.0.md. Не продолжать разработку с нуля/не запускать сборку неизменённых исходников.
+Реального Android-снимка НЕТ. Четыре Preview360dp (light/dark,1.0/1.3x) скомпилированы, но не отрисованы. Android Studio установлена; Computer Use helper дважды не запустился с `failed to write kernel assets ... os error3`, включая reset/retry. Не повторять это подключение циклически и не выдавать PNG эталона за рендер приложения. Не запускать эмулятор/ADB/установки.
 
-После новых изменений:
+Следующий шаг — утверждение главной владельцем на настоящем телефоне: новый локальный APK поверх старого без удаления данных, ширина360dp/шрифт1.0/1.3/light/dark, длинные имена/заголовки, один набор/одна карточка/пусто/много, поиск/корзина/все действия и системные отступы. Скриншоты телефона в сообщениях/ZIP не предоставлены; запрошен их локальный путь. До утверждения НЕ переделывать остальные шесть экранов. Main/production/Firebase/SQLite/secrets/подпись не менять. APK/кэши/SDK/JDK в Git не добавлять.
+
+Проверки после новых исходных изменений (не пересобирать текущий APK ради документов):
 ```powershell
 & .\android\.build-tools\run-checks.ps1 -Tasks '-Pkotlin.compiler.execution.strategy=in-process',':app:testDebugUnitTest',':app:lintDebug',':app:assembleDebug'
 ```
-Логи ignored android/.build-tools/070-final-checks.log и 070-worker-tests.log. Реальные Google/OCR/Compose360dp/большой шрифт/обновление и Gemini из нового UI требуют телефона. Layoutlib не установлен; эмулятор/ADB не запускать. Production/Firebase/SQLite/secrets/квоты/main/старую02_MyWork не менять, LLM/зависимости не скачивать. Новый публичный Release0.7 не разрешён и не создан. APK/SDK/JDK/кэши/локальные настройки не коммитить. Сохранять чужие изменения, никаких force/reset/clean.
+Лог: android/.build-tools/home-stitch-final.log. Детали прошлой функциональности0.7: docs/testhelper-0.7.0-verification.md; известные ограничения: docs/REMAINING.md; планAI: docs/ai-next-stage.md. Источник APK — коммит исправления главной; точный SHA `git log -1 --format=%H` после сохранения этого этапа.

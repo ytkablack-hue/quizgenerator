@@ -354,7 +354,9 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ && page != Page.CARDS && page != Page.WORKSPACE) {
+            if(page==Page.HOME)StudyHomeHeader(auth.account?.name?.ifBlank {null} ?: auth.account?.email?.substringBefore('@') ?: "T",
+                onProfile={accountReturn=Page.HOME;page=Page.ACCOUNT},onPreparation={activeSetId=null;page=Page.PREPARATION})
+            else if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ && page != Page.CARDS && page != Page.WORKSPACE) {
                 kz.quizgenerator.ui.components.SteamTopBar(
                     if (mainPage) "TestHelper" else page.title,
                     onBack = if (!mainPage && page != Page.CARDS) ::goBack else null,
@@ -367,29 +369,24 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             }
         },
         bottomBar = {
-            if (mainPage) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                tabs.forEach { tab ->
-                    NavigationBarItem(page == tab, onClick = {
-                        editor.cancel();activeSetId=null;quizSetReturn=false
-                        if(tab==Page.ACCOUNT)accountReturn=Page.HOME
-                        page = tab
-                    }, icon = { StudyIcon(requireNotNull(tab.glyph)) }, label = { Text(if(tab==Page.LIBRARY)"Тесты" else tab.title, maxLines = 2) },
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
-                }
+            if(mainPage)StudyHomeNavigation(tabs.map {tab->(if(tab==Page.LIBRARY)"Тесты" else tab.title) to requireNotNull(tab.glyph)},tabs.indexOf(page)) {index->
+                editor.cancel();activeSetId=null;quizSetReturn=false
+                val tab=tabs[index];if(tab==Page.ACCOUNT)accountReturn=Page.HOME
+                page=tab
             }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = if(page==Page.HOME)0.dp else 16.dp, vertical = if(page==Page.HOME)0.dp else 8.dp)) {
                 storageError?.let { StudyError(it); Spacer(Modifier.height(6.dp)) }
                 if (LocalAuth.current.account?.verified == false && page != Page.ACCOUNT) TextButton(onClick={accountReturn=page;page=Page.ACCOUNT}) { Text("Подтвердите почту для доступа к ИИ") }
                 if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")
                 screenStates.SaveableStateProvider(page.name) {
                 when (page) {
-                    Page.HOME -> StudySetHome(repository,quizzes.filter(repository::canDelete),study,
+                    Page.HOME -> Box(Modifier.weight(1f).fillMaxWidth()) {StudySetHome(repository,quizzes.filter(repository::canDelete),study,
                         onOpen={activeSetId=it;page=Page.WORKSPACE},onCreate={activeSetId=null;page=Page.CREATE},
-                        onProfile={accountReturn=Page.HOME;page=Page.ACCOUNT},onExport=exportSet,onLegacy={activeSetId=null;page=Page.LIBRARY},onPreparation={activeSetId=null;page=Page.PREPARATION})
+                        onExport=exportSet,onLegacy={activeSetId=null;page=Page.LIBRARY},onPreparation={activeSetId=null;page=Page.PREPARATION})}
                     Page.CREATE -> NewStudySetScreen(repository,{activeSetId=it;page=Page.WORKSPACE},::goBack)
                     Page.WORKSPACE -> activeSetId?.let {setId -> key(setId) {StudySetWorkspace(setId,repository,quizzes,study,update,::goBack,
                         onQuiz={openQuiz(it);quizSetReturn=true},onEdit={bank->openDraft(QuizDraft(bank ?: emptyQuiz(),original=bank),Page.WORKSPACE)},
