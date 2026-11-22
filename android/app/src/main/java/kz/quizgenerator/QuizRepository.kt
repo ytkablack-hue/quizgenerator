@@ -7,13 +7,17 @@ import java.io.ByteArrayOutputStream
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.charset.CodingErrorAction
-import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 internal data class DocumentDetails(val name: String, val bytes: Long?)
-internal data class ImportResult(val quiz: Quiz, val warnings: List<String>, val document: DocumentDetails)
+internal data class ImportResult(
+    val quiz: Quiz,
+    val warnings: List<String>,
+    val document: DocumentDetails,
+    val charset: String = "UTF-8",
+    val encodingConfident: Boolean = true,
+    val preview: String = ""
+)
 internal data class ImportProgress(val document: DocumentDetails, val fraction: Float?)
 
 class QuizRepository(private val context: Context) {
@@ -82,7 +86,7 @@ class QuizRepository(private val context: Context) {
         val material = when (format(stream, details.name)) {
             "docx" -> DocxTextExtractor.extract(stream, context.cacheDir, 12_001)
             "pdf" -> throw IllegalArgumentException("Для учебного материала выберите TXT или DOCX")
-            else -> decodeText(bytes(stream, details.bytes, {}))
+            else -> TextDecoder.decode(bytes(stream, details.bytes, {})).text
         }
         material.trim().also {
             require(it.isNotEmpty()) { "Файл не содержит учебного текста" }
@@ -90,7 +94,11 @@ class QuizRepository(private val context: Context) {
         }
     }
 
-    internal fun previewImport(uri: Uri, progress: (ImportProgress) -> Unit): ImportResult = withDocument(uri) { stream ->
+    internal fun previewImport(
+        uri: Uri,
+        charset: String? = null,
+        progress: (ImportProgress) -> Unit
+    ): ImportResult = withDocument(uri) { stream ->
         val details = describe(uri)
         val format = format(stream, details.name)
         val title = details.name.substringBeforeLast('.')
@@ -102,26 +110,35 @@ class QuizRepository(private val context: Context) {
             override fun read(b: ByteArray, off: Int, len: Int): Int =
                 super.read(b, off, len).also { if (it > 0) total += it }
         }
+        var detectedCharset = "UTF-8"
+        var confident = true
+        var preview = ""
         val parsed = when (format) {
             "pdf" -> throw IllegalArgumentException("PDF пока не поддерживается. Выберите TXT, DOCX или JSON.")
             "docx" -> QuizTextParser.parseFrom(title) { consume ->
                 DocxTextExtractor.paragraphs(counted, context.cacheDir, details.bytes, ::report, consume)
             }
             else -> {
-                val decoded = decodeText(bytes(counted, details.bytes, ::report))
-                if (format == "json" || decoded.trimStart().startsWith("{")) ParsedQuiz(QuizJson.parse(decoded), emptyList())
-                else QuizTextParser.parse(decoded, title)
+                val decoded = TextDecoder.decode(bytes(counted, details.bytes, ::report), charset)
+                detectedCharset = decoded.charset
+                confident = decoded.confident
+                preview = decoded.text.take(500)
+                if (format == "json" || decoded.text.trimStart().startsWith("{")) {
+                    ParsedQuiz(QuizJson.parse(decoded.text), emptyList())
+                } else {
+                    QuizTextParser.parse(decoded.text, title)
+                }
             }
         }
         report(1f)
-        ImportResult(parsed.quiz, parsed.warnings, details.copy(bytes = counted.total))
+        val warnings = if (confident) parsed.warnings else parsed.warnings + listOf(
+            "Кодировка определена как $detectedCharset предположительно. Проверьте текст или выберите кодировку вручную."
+        )
+        ImportResult(
+            parsed.quiz, warnings, details.copy(bytes = counted.total),
+            charset = detectedCharset, encodingConfident = confident, preview = preview
+        )
     }
-
-    private fun decodeText(bytes: ByteArray): String = StandardCharsets.UTF_8.newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT)
-        .onUnmappableCharacter(CodingErrorAction.REPORT)
-        .decode(ByteBuffer.wrap(bytes))
-        .toString().removePrefix("\uFEFF")
 
     /** Persist the manually reviewed answer key; keep the read-only demo quiz intact. */
     fun saveQuiz(quiz: Quiz): Quiz {
