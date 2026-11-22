@@ -1,0 +1,14 @@
+# TestHelper — рабочие правила
+
+- Проект: C:/Projects/quizgenerator. Рабочая ветка feature/android-mvp; main не изменять. Старую 02_MyWork/android не изменять.
+- Новая сессия: git status --short --branch, docs/CONTINUE.md, git log -5 --oneline. Затем git fetch origin и точечный git diff. Сохранять чужие/WIP-коммиты; при расхождении веток остановиться перед merge/rebase.
+- Карта: android/app — Kotlin-модель, импорт, хранение, Firebase REST, Compose-сценарии; android/ui — компоненты/темы. backend/cloudflare — Firebase JWT, Worker Gemini, SQLite AiQuota. docs — результаты и контрольная точка.
+- Импорт: QuizTextParser/ParserPatterns/AnswerKeyParser, TextDecoder, DocxTextExtractor, QuizRepository; UI/отмена — EditorModel в QuizEditor, MainActivity. Тесты android/app/src/test/java/kz/quizgenerator.
+- PowerShell из корня: & .\android\.build-tools\run-checks.ps1 -Tasks ':app:testDebugUnitTest','--tests','*TextEncodingTest','--tests','*QuizTextParser*' . Для DOCX добавлять --tests *Docx*; масштаб/данные — *UniversityImportTest, *QuizJsonTest, *ReleaseRegressionTest.
+- Завершение крупного Android-этапа: тот же runner с -Tasks ':app:testDebugUnitTest',':app:lintDebug',':app:assembleDebug'. Сервер: node --test backend/cloudflare/tests/security.test.mjs. Вывод Gradle писать в игнорируемый android/.build-tools/*.log; читать итог и хвост ошибки, не весь лог. Не пересобирать без изменения исходников/проблемы.
+- Поиск: rg по нужным исходникам, git diff/status; исключать .git/.gradle/build/.build-tools/бинарные файлы. Не перечитывать неизменённые файлы и не повторять полный аудит.
+- Не устанавливать программы/SDK/тяжёлые модели без разрешения. Не менять глобальные настройки Windows, не запускать admin, эмулятор/ADB. Бесплатные тарифы; никаких billing/Blaze/Workers Paid.
+- Не удалять пользовательские данные, не использовать reset --hard, clean -fd или force push. Сохранность данных/миграции и проверки безопасности обязательны. Не отправлять документы в облако без явного согласия.
+- Production testhelper-ai и Firebase testhelper-fe15b уже работают. Не повторять настройку/живые вызовы без причины. Изменения production требуют отдельного согласия; сохранять secrets/SQLite/квоты/откат. Секреты, токены, local.properties, SDK/JDK, кэши и APK не коммитить; .build-tools игнорируется.
+- После логического этапа: целевые тесты, git diff и staged files, docs/CONTINUE.md (завершённое, SHA исходной точки, реальные проверки, остаток, следующая команда), понятный commit, обычный push origin feature/android-mvp. Не публиковать Release без отдельного разрешения. Разделять mock/live/device результаты.
+- Короткие обновления: выполнено / тесты / ошибка / следующий шаг. При остановке сохранять незавершённое честно; продолжать по CONTINUE, не с нуля. Простые задачи — доступная экономная модель; безопасность/миграции — достаточная глубина. Не переключать модель или ставить плагины ради формальности.
