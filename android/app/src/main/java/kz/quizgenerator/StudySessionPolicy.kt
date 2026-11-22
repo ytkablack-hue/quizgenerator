@@ -13,6 +13,10 @@ internal object StudySessionPolicy {
             else -> null
         }
     }
+    fun nextBookmark(questions: List<QuizQuestion>,marked: Set<String>,current: Int): Int? {
+        if(questions.isEmpty())return null
+        return (1..questions.size).map {(current+it).mod(questions.size)}.firstOrNull {questions[it].id in marked}
+    }
     fun bookmark(current: Set<String>,id: String)=if(id in current)current-id else current+id
     fun mistakeCards(quiz: Quiz,answers: List<Set<Int>>,existing: List<Flashcard>): List<Flashcard> =
         StudyResultRules.mistakes(quiz,answers)?.let {QuizCards.create(it,existing)}.orEmpty()

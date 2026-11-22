@@ -8,8 +8,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 
 internal enum class CreationSource {CHOOSE,DOCUMENT,PHOTO,TEXT,AI}
+internal fun CreationSource.aiInput()=when(this) {CreationSource.CHOOSE,CreationSource.DOCUMENT,CreationSource.PHOTO->AiInputMode.DOCUMENT;CreationSource.TEXT->AiInputMode.TEXT;else->AiInputMode.TOPIC}
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun CreationFlow(initial: CreationSource,onImport: ()->Unit,onAi: ()->Unit,
+@Composable internal fun CreationFlow(initial: CreationSource,onImport: ()->Unit,onAi: (AiInputMode)->Unit,
     onManual: ()->Unit,onDraft: (Quiz)->Unit,onAccount: ()->Unit) {
     var source by rememberSaveable(initial) {mutableStateOf(initial)}
     var title by rememberSaveable {mutableStateOf("")};var text by rememberSaveable {mutableStateOf("")}
@@ -40,7 +41,7 @@ internal enum class CreationSource {CHOOSE,DOCUMENT,PHOTO,TEXT,AI}
                 StudyIcon(if(source==CreationSource.PHOTO)Glyph.FILE else Glyph.LIBRARY)
                 Text("Материал отдельно от инструкций",style=MaterialTheme.typography.titleLarge)
                 Text("Прикрепите PDF, Word, TXT, JSON или фото. Полный текст сохранится на устройстве; для Gemini выберете один фрагмент.")
-                Button(onClick=onAi,modifier=Modifier.fillMaxWidth()) {Text("Добавить материал и выбрать действие")}
+                Button(onClick={onAi(source.aiInput())},modifier=Modifier.fillMaxWidth()) {Text("Добавить материал и выбрать действие")}
             }}
             item {StudyPanel {
                 Text("В файле уже есть тестовые вопросы?")

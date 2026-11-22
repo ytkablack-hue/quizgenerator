@@ -10,6 +10,7 @@ import java.io.File
 internal class MaterialUiModel: ViewModel() {
     private val work=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private var repo: QuizRepository?=null
+    private var requestedInput: AiInputMode?=null
     private var reading: Job?=null
     private var attaching: Job?=null
     private var saving: Job?=null
@@ -24,15 +25,22 @@ internal class MaterialUiModel: ViewModel() {
     var setRevision by mutableIntStateOf(0);private set
     var pendingCards by mutableStateOf<List<Flashcard>>(emptyList())
     private fun store()=AiDraftStore(File(requireNotNull(repo).workspaceRoot,"ai-draft.json"))
+    fun chooseInput(repository: QuizRepository,mode: AiInputMode) {
+        requestedInput=mode
+        bind(repository)
+        if(ready){requestedInput=null;update(draft.copy(inputMode=mode))}
+    }
     fun bind(repository: QuizRepository) {
         if(repo!=null) {require(repo!!.workspaceRoot==repository.workspaceRoot);return}
         repo=repository
         work.launch {
             try {
                 val values=withContext(Dispatchers.IO) {store().load() to repository.materials.list()}
-                draft=values.first;records=values.second.mapNotNull {it.getOrNull()}
+                val requested=requestedInput;requestedInput=null
+                draft=values.first.let {if(requested==null)it else it.copy(inputMode=requested)};records=values.second.mapNotNull {it.getOrNull()}
                 if(values.second.any {it.isFailure})error="Некоторые документы повреждены. Они сохранены на устройстве; загрузите оригиналы повторно"
                 ready=true;select(draft.sourceId,false)
+                if(requested!=null)update(draft)
             } catch(e: CancellationException) {throw e}
               catch(_: Exception) {error="Не удалось открыть настройки материалов. Исходные файлы не изменены"}
         }

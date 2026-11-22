@@ -22,6 +22,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     val auth=LocalAuth.current;val scope=rememberCoroutineScope();val context=LocalContext.current
     val model=remember(auth.account?.uid) {ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java)}
     LaunchedEffect(repository) {model.bind(repository)}
+    if(!model.ready){StudyColumn("Учиться с ИИ",onBack){model.error?.let {StudyError(it)} ?: StudyLoading("Восстанавливаем настройки материалов")};return}
     var currentSet by remember(studySetId) {mutableStateOf<StudySet?>(null)}
     var setReady by remember(studySetId) {mutableStateOf(studySetId==null)}
     LaunchedEffect(studySetId,model.records,model.ready,model.setRevision,model.draft.inputMode) {

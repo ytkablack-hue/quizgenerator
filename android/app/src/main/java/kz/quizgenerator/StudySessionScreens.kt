@@ -71,7 +71,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, hints: Boolean,
                        onAnswer: (Int) -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
-                       onFinish: () -> Unit,examMode: Boolean=false,bookmarked: Boolean=false,onBookmark: ()->Unit={},markedCount: Int=0) {
+                       onFinish: () -> Unit,examMode: Boolean=false,bookmarked: Boolean=false,onBookmark: ()->Unit={},markedCount: Int=0,onNextBookmark: ()->Unit={}) {
     val question = quiz.questions[index]
     val last = index == quiz.questions.lastIndex
     var feedback by rememberSaveable(question.id,answer.toString()) {mutableStateOf(false)}
@@ -93,7 +93,7 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
                         Row(verticalAlignment=Alignment.CenterVertically) {Text(if(examMode)"Экзамен" else "Обучение",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                             IconToggleButton(checked=bookmarked,onCheckedChange={onBookmark()},modifier=Modifier.semantics {contentDescription=if(bookmarked)"Убрать закладку" else "Отметить сложный вопрос"}) {StudyIcon(Glyph.BOOKMARK)}}
                         Text(quiz.title,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("На повтор: $markedCount",style=MaterialTheme.typography.labelMedium)
+                        TextButton(enabled=markedCount>0,onClick=onNextBookmark){Text("К закладкам ($markedCount)")}
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Вопрос ${index + 1} из ${quiz.questions.size}")
                             seconds?.let { Text(String.format(Locale.ROOT, "%02d:%02d", it / 60, it % 60),
@@ -157,7 +157,7 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,showAnswers: Boolean,
-    repeat: ()->Unit,library: ()->Unit,repeatMistakes: (() -> Unit)?=null,durationMillis: Long?=null,onCardsFromMistakes: (() -> Unit)?=null) {
+    repeat: ()->Unit,library: ()->Unit,repeatMistakes: (() -> Unit)?=null,durationMillis: Long?=null,onCardsFromMistakes: (() -> Unit)?=null,repeatBookmarks: (() -> Unit)?=null) {
     val score=QuizScorer.scoreSelections(quiz,answers)
     val percent=if(score.gradedTotal>0)(100f*score.correct/score.gradedTotal).roundToInt() else null
     var errorsOnly by rememberSaveable(quiz.id) {mutableStateOf(false)}
@@ -180,6 +180,7 @@ internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,s
             Button(onClick=repeat){Text("Повторить тест")}
             if(repeatMistakes!=null && score.incorrect+score.skipped>0)OutlinedButton(onClick=repeatMistakes){Text("Повторить ошибки ("+(score.incorrect+score.skipped)+")")}
             if(onCardsFromMistakes!=null && score.incorrect+score.skipped>0)OutlinedButton(onClick=onCardsFromMistakes){Text("Карточки из ошибок")}
+            repeatBookmarks?.let {OutlinedButton(onClick=it){Text("Повторить закладки")}}
             TextButton(onClick=library){Text("Вернуться к материалам")}
         }}
         item {FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {FilterChip(!errorsOnly,{errorsOnly=false},label={Text("Все вопросы")});FilterChip(errorsOnly,{errorsOnly=true},label={Text("Ошибки и пропуски")})}}
@@ -191,7 +192,7 @@ internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,s
                 Text(q.text,style=MaterialTheme.typography.titleMedium)
                 Surface(color=if(outcome==QuestionOutcome.INCORRECT || outcome==QuestionOutcome.SKIPPED)MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainer,shape=MaterialTheme.shapes.small) {Text("Ваш ответ: "+answers[index].sorted().joinToString {q.options[it]}.ifBlank {"Не выбран"},Modifier.fillMaxWidth().padding(12.dp))}
                 if(showAnswers && q.correctIndices.isNotEmpty()) {
-                    Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.small){Text((if(q.evidence.confirmed)"Подтверждённый ключ: " else "Предположение, не ключ: ")+q.correctIndices.joinToString {q.options[it]},Modifier.fillMaxWidth().padding(12.dp))}
+                    Surface(color=if(q.evidence.confirmed)MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,contentColor=if(q.evidence.confirmed)MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,shape=MaterialTheme.shapes.small){Text((if(q.evidence.confirmed)"Подтверждённый ключ: " else "Предположение, не ключ: ")+q.correctIndices.joinToString {q.options[it]},Modifier.fillMaxWidth().padding(12.dp))}
                     Text(q.evidence.label)
                     q.explanation?.let {Text(it)}
                 }

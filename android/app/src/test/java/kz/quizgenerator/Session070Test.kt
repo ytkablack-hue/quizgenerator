@@ -21,4 +21,6 @@ class Session070Test {
 
  @Test fun timedSessionDurationStopsAtDeadlineWhenAppResumesLate() {assertEquals(60000L,StudySessionPolicy.duration(10000,1000,3,3,130000,121000,70000,61000));assertEquals(60000L,StudySessionPolicy.duration(10000,1000,3,4,130000,121000,70000,121000))}
 
+ @Test fun bookmarksNavigateWrapAndDoNotAlterAnswers() {assertEquals(1,StudySessionPolicy.nextBookmark(quiz.questions,setOf("q2"),0));assertEquals(0,StudySessionPolicy.nextBookmark(quiz.questions,setOf("q"),1));assertEquals(0,StudySessionPolicy.nextBookmark(quiz.questions,setOf("q"),0));assertNull(StudySessionPolicy.nextBookmark(quiz.questions,setOf("foreign"),0));assertNull(StudySessionPolicy.nextBookmark(emptyList(),emptySet(),0))}
+
 }

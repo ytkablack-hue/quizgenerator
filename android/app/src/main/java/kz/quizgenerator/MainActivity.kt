@@ -128,6 +128,8 @@ private enum class Confirmation { DISCARD_DRAFT, LEAVE_QUIZ, FINISH_QUIZ }
 @Composable
 private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study: StudyData,
                           activeStore: ActiveAttemptStore, bootCount: Int, update: (StudyData) -> Boolean, storageError: String?, initialQuizzes: List<Quiz>, restoredAttempt: Result<ActiveAttempt?>, onExportData: () -> Unit) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val auth=LocalAuth.current
     var quizzes by remember { mutableStateOf(initialQuizzes) }
     val restoreResult = remember { restoredAttempt }
     val restored = restoreResult.getOrNull()?.takeUnless {snapshot->study.attempts.any {it.id==snapshot.attemptId}}
@@ -379,7 +381,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().fillMaxHeight().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 storageError?.let { StudyError(it); Spacer(Modifier.height(6.dp)) }
                 if (LocalAuth.current.account?.verified == false && page != Page.ACCOUNT) TextButton(onClick={accountReturn=page;page=Page.ACCOUNT}) { Text("Подтвердите почту для доступа к ИИ") }
                 if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")
@@ -401,7 +403,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         editor.failure?.let { StudyError(it); ImportEncodingControls(editor, repository) }
                         CreationFlow(creationSource,
                             onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/pdf", "image/jpeg", "image/png", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
-                            onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.SOURCE) },
+                            onAi = {input->ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java).chooseInput(repository,input); aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.SOURCE) },
                             onDraft = { openDraft(QuizDraft(it), Page.SOURCE) }, onAccount = { accountReturn = page; page = Page.ACCOUNT })
                     }
                     Page.LIBRARY -> LibraryScreen(quizzes.filter(repository::canDelete), repository::modifiedAt, libraryError, ::openQuiz,
@@ -478,11 +480,12 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                                 }
                             }, { if (questionIndex > 0) questionIndex-- }, {
                                 if (QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finish() else questionIndex++
-                            }, { confirmation = Confirmation.FINISH_QUIZ },examMode=sessionExam,bookmarked=it.questions[questionIndex].id in marked,onBookmark={marked=StudySessionPolicy.bookmark(marked.toSet(),it.questions[questionIndex].id).toList()},markedCount=marked.size)
+                            }, { confirmation = Confirmation.FINISH_QUIZ },examMode=sessionExam,bookmarked=it.questions[questionIndex].id in marked,onBookmark={marked=StudySessionPolicy.bookmark(marked.toSet(),it.questions[questionIndex].id).toList()},markedCount=marked.size,onNextBookmark={StudySessionPolicy.nextBookmark(it.questions,marked.toSet(),questionIndex)?.let {next->questionIndex=next}})
                     }
                     Page.RESULTS -> prepared?.takeIf { answers.size == it.questions.size }?.let {
                         ResultsScreen(it, selections, expired, sessionReveal, { currentQuiz?.let {bank->start(bank)} }, ::goBack,
                             repeatMistakes={StudyResultRules.mistakes(it,selections)?.let {bank->start(bank)}},durationMillis=completedDuration ?: study.attempts.firstOrNull {a->a.id==attemptId}?.durationMillis,
+                            repeatBookmarks=if(marked.isEmpty())null else ({val selected=it.questions.filter {q->q.id in marked};if(selected.isNotEmpty())start(it.copy(title=it.title+" · Закладки",questions=selected))}),
                             onCardsFromMistakes={val cards=StudySessionPolicy.mistakeCards(it,selections,study.cards);if(update(study.copy(cards=study.cards+cards))){if(activeSetId!=null)runCatching {repository.sets.linkCards(activeSetId!!,cards.map {c->c.id})}.onFailure {libraryError="Карточки сохранены, но не связаны с набором"};scope.launch {snackbar.showSnackbar(if(cards.isEmpty())"Все карточки этих ошибок уже есть" else "Добавлено карточек: "+cards.size)}}})
                     }
                 }

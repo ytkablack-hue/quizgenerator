@@ -48,7 +48,7 @@ internal fun AuthEntryScreen() {
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
         Box(Modifier.fillMaxSize()) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max=480.dp).fillMaxWidth().safeDrawingPadding().imePadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal=22.dp,vertical=20.dp),
+            .verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=24.dp),
             verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Column(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surface,tonalElevation=1.dp) {kz.quizgenerator.ui.components.TestHelperMark(Modifier.padding(20.dp).size(if(mode=="welcome")56.dp else 32.dp))}

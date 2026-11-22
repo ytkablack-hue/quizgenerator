@@ -20,7 +20,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
 
     suspend fun quiz(topic: String, material: String, difficulty: String, count: Int): Quiz {
         val result = request("quizzes", input(topic, material, difficulty, count))
-        val quiz = parsed {QuizJson.parse(result.toString())}
+        val quiz = parsed {QuizJson.parse(result.toString())}.let {parsed->parsed.copy(questions=parsed.questions.map {it.copy(evidence=AnswerEvidence.CLOUD_AI)})}
         require(quiz.generatedByAi && quiz.questions.size == count && quiz.questions.all {
             it.correctIndex != null && !it.explanation.isNullOrBlank()
         }) { "Сервер вернул неполный тест" }

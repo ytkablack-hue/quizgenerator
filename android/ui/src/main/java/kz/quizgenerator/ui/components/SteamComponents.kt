@@ -28,7 +28,7 @@ enum class SteamTone { GREEN, BLUE, PALE, TEXT }
 @Composable
 fun SteamTopBar(title: String, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null,
                 trailing: (@Composable RowScope.() -> Unit)? = null, applyStatusBarInsets: Boolean = true) {
-    Row(modifier.fillMaxWidth().background(SteamSurface).then(if (applyStatusBarInsets) Modifier.statusBarsPadding() else Modifier).heightIn(min = 56.dp).padding(horizontal = 14.dp),
+    Row(modifier.fillMaxWidth().background(SteamSurface).then(if (applyStatusBarInsets) Modifier.statusBarsPadding() else Modifier).heightIn(min = 56.dp).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) { TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp), modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text("‹", color = SteamText, fontSize = 27.sp) }; Spacer(Modifier.width(8.dp)) }
         else {TestHelperMark(Modifier.size(28.dp));Spacer(Modifier.width(10.dp))}
@@ -80,12 +80,12 @@ fun SteamField(label: String, value: String, onValueChange: (String) -> Unit, mo
 
 @Composable fun SteamProgress(progress: Float, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(5.dp).background(SteamBorder, RoundedCornerShape(50))) {
-        Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(5.dp).background(SteamAccent, RoundedCornerShape(50)))
+        Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(5.dp).background(SteamGreen, RoundedCornerShape(50)))
     }
 }
 
 @Composable fun SteamPage(title: String, onBack: (() -> Unit)? = null, showHeader: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().background(SteamBackground)) { if(showHeader)SteamTopBar(title, onBack = onBack, applyStatusBarInsets = false)
-        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
     }
 }

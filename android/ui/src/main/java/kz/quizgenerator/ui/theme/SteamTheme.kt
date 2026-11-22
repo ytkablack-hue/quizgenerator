@@ -28,7 +28,8 @@ object TestHelperPalettes {
     val alert=Color(0xFFEF4444)
     val light=lightColorScheme(
         primary=Color(0xFF1274C2),onPrimary=Color.White,secondary=Color(0xFF168BE8),onSecondary=Color(0xFF17243B),
-        tertiary=Color(0xFF426583),onTertiary=Color.White,
+        tertiary=Color(0xFF047857),onTertiary=Color.White,tertiaryContainer=Color(0xFFECFDF5),onTertiaryContainer=Color(0xFF065F46),
+        error=Color(0xFFB91C1C),onError=Color.White,errorContainer=Color(0xFFFEF2F2),onErrorContainer=Color(0xFF7F1D1D),
         background=Color(0xFFF8FAFC),surface=Color.White,surfaceContainer=Color(0xFFF0F4F9),
         onBackground=Color(0xFF17243B),onSurface=Color(0xFF17243B),onSurfaceVariant=Color(0xFF64748B),
         primaryContainer=Color(0xFFEBF5FF),onPrimaryContainer=Color(0xFF063A60),
@@ -37,7 +38,7 @@ object TestHelperPalettes {
     )
     val dark=darkColorScheme(
         primary=Color(0xFF85CAFF),onPrimary=Color(0xFF003352),secondary=Color(0xFF9ACAF0),onSecondary=Color(0xFF10364E),
-        tertiary=Color(0xFFABC9E3),onTertiary=Color(0xFF17354E),
+        tertiary=Color(0xFF99E2C0),onTertiary=Color(0xFF003821),tertiaryContainer=Color(0xFF164734),onTertiaryContainer=Color(0xFFB8F5D7),
         background=Color(0xFF101923),surface=Color(0xFF172431),surfaceContainer=Color(0xFF203140),
         onBackground=Color(0xFFE8F0F8),onSurface=Color(0xFFE8F0F8),onSurfaceVariant=Color(0xFFBAC8D8),
         primaryContainer=Color(0xFF123D5C),onPrimaryContainer=Color(0xFFD8EEFF),
