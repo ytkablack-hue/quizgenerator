@@ -84,8 +84,8 @@ fun SteamField(label: String, value: String, onValueChange: (String) -> Unit, mo
     }
 }
 
-@Composable fun SteamPage(title: String, onBack: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().background(SteamBackground)) { SteamTopBar(title, onBack = onBack, applyStatusBarInsets = false)
+@Composable fun SteamPage(title: String, onBack: (() -> Unit)? = null, showHeader: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxSize().background(SteamBackground)) { if(showHeader)SteamTopBar(title, onBack = onBack, applyStatusBarInsets = false)
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }

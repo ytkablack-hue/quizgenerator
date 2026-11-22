@@ -16,10 +16,19 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun AiScreen(settings: StudySettings,attempt: Attempt?,repository: QuizRepository,
-    saveQuiz: (Quiz)->Unit,saveCards: (List<Flashcard>)->Boolean,onBack: ()->Unit,onAccount: ()->Unit,initialTask: String="quizzes") {
+    saveQuiz: (Quiz)->Unit,saveCards: (List<Flashcard>)->Boolean,onBack: ()->Unit,onAccount: ()->Unit,initialTask: String="quizzes",studySetId: String?=null) {
     val auth=LocalAuth.current;val scope=rememberCoroutineScope();val context=LocalContext.current
     val model=remember(auth.account?.uid) {ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java)}
     LaunchedEffect(repository) {model.bind(repository)}
+    var currentSet by remember(studySetId) {mutableStateOf<StudySet?>(null)}
+    var setReady by remember(studySetId) {mutableStateOf(studySetId==null)}
+    LaunchedEffect(studySetId,model.records,model.ready,model.setRevision) {
+        if(studySetId!=null && model.ready)try {
+            val set=withContext(Dispatchers.IO){repository.sets.list().first {it.id==studySetId && !it.archived}}
+            currentSet=set;setReady=true
+            if(model.draft.sourceId !in set.materialIds)model.select(set.materialIds.firstOrNull())
+        } catch(e: CancellationException){throw e}catch(_: Exception){setReady=false}
+    }
     val client=remember(auth) {AiClient(settings,authToken={auth.token()})}
     var mode by rememberSaveable(initialTask,attempt?.id) {mutableStateOf(when(initialTask){"review"->AiTask.REVIEW;"cards"->AiTask.CARDS;else->AiTask.QUIZ})}
     var job by remember {mutableStateOf<Job?>(null)};val busy=job?.isActive==true
@@ -31,17 +40,18 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     var rangeEnd by rememberSaveable(model.draft.sourceId,model.draft.part) {mutableStateOf("")}
     var rangeConfirmed by rememberSaveable(model.draft.sourceId,model.draft.part,rangeStart,rangeEnd) {mutableStateOf(false)}
     var documentLimit by rememberSaveable {mutableIntStateOf(20)}
-    val draft=model.draft;val record=model.records.firstOrNull {it.id==draft.sourceId}
+    val draft=model.draft;val visibleRecords=model.records.filter {studySetId==null || it.id in currentSet?.materialIds.orEmpty()};val record=model.records.firstOrNull {it.id==draft.sourceId}
     val reviewText=remember(attempt) {attempt?.let {AiClient.reviewText(it)}.orEmpty()}
     val reviewParts=remember(reviewText) {MaterialSlices.plan(reviewText)}
     val parts=if(mode==AiTask.REVIEW)reviewParts else model.parts
     val selected=parts.getOrNull(draft.part.coerceAtMost((parts.size-1).coerceAtLeast(0)))
     val full=if(mode==AiTask.REVIEW)reviewText else model.text
-    val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {it?.let(model::attach)}
+    val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri->if(uri!=null)model.attach(uri,studySetId)}
     fun prepare() {
         try {
             require(mode!=AiTask.REVIEW || (attempt?.mistakes?.isNotEmpty()==true && selected!=null)) { "Нет ошибок для разбора" }
             require(mode==AiTask.REVIEW || draft.sourceId==null || (record!=null && model.text.isNotEmpty() && selected!=null)) { "Дождитесь открытия выбранного документа" }
+            require(setReady && (studySetId==null || draft.sourceId==null || draft.sourceId in currentSet?.materialIds.orEmpty())) {"Дождитесь открытия материала этого набора"}
             val body=if(selected?.oversized==true) {
                 require(rangeConfirmed) {"Подтвердите выбор неполного фрагмента"}
                 val a=(rangeStart.toIntOrNull() ?: error("Укажите первый символ"))-1
@@ -75,25 +85,25 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         }
     }}
     if(viewer && record!=null && model.text.isNotEmpty())MaterialViewer(record,model.text,draft.previewPage,
-        {model.update(model.draft.copy(previewPage=it))},{viewer=false})
+        {model.update(model.draft.copy(previewPage=it))},{viewer=false},sourceFile=repository.materials.source(record.id))
     StudyColumn("Учиться с ИИ",onBack) {
         Text("Документы хранятся на устройстве. В облако отправляется только явно выбранный фрагмент.")
         if(auth.account?.verified!=true)TextButton(onClick=onAccount) {Text("Подтвердить почту для Gemini")}
         FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {AiTask.entries.forEach {task -> FilterChip(mode==task,{mode=task;model.update(draft.copy(part=0))},label={Text(task.title)},enabled=!busy)}}
         if(mode!=AiTask.REVIEW) {
             OutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
-            if(model.records.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
-            model.records.take(documentLimit).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
+            if(visibleRecords.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
+            visibleRecords.take(documentLimit).forEach {item -> StudyPanel(tone=if(item.id==draft.sourceId)PanelTone.SKY else PanelTone.PLAIN) {
                 Text(item.name,style=MaterialTheme.typography.titleMedium)
                 Text(item.format.uppercase()+" · "+item.bytes+" байт · "+item.characters+" символов · Обработан")
                 if(item.notice.isNotBlank())Text(item.notice)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     TextButton(enabled=!busy,onClick={model.select(item.id)}) {Text(if(item.id==draft.sourceId)"Выбран" else "Выбрать")}
-                    TextButton(onClick={if(item.id!=draft.sourceId)model.select(item.id);viewer=true}) {Text("Просмотр")}
+                    TextButton(enabled=model.progress==null && !busy,onClick={if(item.id!=draft.sourceId)model.select(item.id);viewer=true}) {Text("Просмотр")}
                     TextButton(enabled=!busy,onClick={job=scope.launch {try {saveQuiz(withContext(Dispatchers.IO) {repository.questionsFromMaterial(item.id).quiz})}catch(e: CancellationException){throw e}catch(e: Exception){failure=e.message ?: "Готовые вопросы не найдены. Используйте создание с ИИ"}finally{job=null}}}) {Text("Открыть готовые вопросы")}
                 }
             }}
-            if(model.records.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(model.records.size)}) {Text("Показать ещё · всего "+model.records.size)}
+            if(visibleRecords.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(visibleRecords.size)}) {Text("Показать ещё · всего "+visibleRecords.size)}
             if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Использовать только тему и собственный текст")}
             StudyField(draft.topic,{model.update(draft.copy(topic=it))},"Тема")
             OutlinedTextField(draft.extra,{model.update(draft.copy(extra=it))},modifier=Modifier.fillMaxWidth(),label={Text("Дополнительный текст — необязательно")},minLines=2,maxLines=5)
@@ -113,7 +123,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
                 Row {Checkbox(rangeConfirmed,{rangeConfirmed=it});Text("Понимаю, что это неполный блок; проверю контекст и результат")}
             }
         }
-        Button(enabled=model.ready && !busy && model.progress==null && auth.account?.verified==true && (mode==AiTask.REVIEW || draft.count.toIntOrNull() in 1..25),onClick=::prepare,modifier=Modifier.fillMaxWidth()) {Text("Проверить и отправить 1 запрос")}
+        Button(enabled=model.ready && setReady && !busy && model.progress==null && auth.account?.verified==true && (mode==AiTask.REVIEW || draft.count.toIntOrNull() in 1..25),onClick=::prepare,modifier=Modifier.fillMaxWidth()) {Text("Проверить и отправить 1 запрос")}
         if(model.pendingCards.isNotEmpty() && mode==AiTask.CARDS) {
             Text("Карточек создано: "+model.pendingCards.size+" · ответы ИИ требуют проверки")
             model.pendingCards.forEach {card->StudyPanel {Text(card.front);Text(card.back)}}

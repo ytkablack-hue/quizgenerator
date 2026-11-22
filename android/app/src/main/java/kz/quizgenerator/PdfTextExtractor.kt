@@ -10,7 +10,7 @@ import java.io.InputStream
 /** Uses the installed Android PDF engine, without adding a native parser or sending files online. */
 internal object PdfTextExtractor {
     private const val MAX_BYTES = 64L * 1024 * 1024
-    fun paragraphs(source: InputStream, directory: File, size: Long?, progress: (Float?) -> Unit, consume: (String) -> Unit, ocr: ((PdfRenderer.Page,(Float)->Unit)->String)? = null): Boolean {
+    fun paragraphs(source: InputStream, directory: File, size: Long?, progress: (Float?) -> Unit, consume: (String) -> Unit, onEmpty: ((Int)->Unit)? = null, ocr: ((PdfRenderer.Page,(Float)->Unit)->String)? = null): Boolean {
         require(size == null || size <= MAX_BYTES) { "PDF больше 64 МБ. Разделите документ" }
         val file = File.createTempFile("testhelper-pdf-", ".pdf", directory)
         try {
@@ -24,11 +24,11 @@ internal object PdfTextExtractor {
                     out.write(buffer,0,n)
                 }
             }
-            return readPages(file, progress, consume,ocr)
+            return readPages(file, progress, consume,ocr,onEmpty)
         } finally { file.delete() }
     }
 
-    private fun readPages(file: File, progress: (Float?) -> Unit, consume: (String) -> Unit,ocr: ((PdfRenderer.Page,(Float)->Unit)->String)?): Boolean {
+    private fun readPages(file: File, progress: (Float?) -> Unit, consume: (String) -> Unit,ocr: ((PdfRenderer.Page,(Float)->Unit)->String)?,onEmpty: ((Int)->Unit)?): Boolean {
         var usedOcr=false
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             PdfRenderer(fd).use { renderer ->
@@ -42,7 +42,7 @@ internal object PdfTextExtractor {
                             listOf(recognize(current) {fraction -> progress(.4f+.59f*(page+fraction)/renderer.pageCount.coerceAtLeast(1))})
                         }
                     }
-                }, consume)
+                }, consume,onEmpty)
             }
         }
         progress(1f)
@@ -54,12 +54,13 @@ internal object PdfTextExtractor {
 
 /** Shared bounds/cancellation and fail-closed handling of mixed text/scan documents. */
 internal object PdfTextPages {
-    fun consume(count: Int, checkCancelled: () -> Unit, readPage: (Int) -> List<String>, emit: (String) -> Unit) {
+    fun consume(count: Int, checkCancelled: () -> Unit, readPage: (Int) -> List<String>, emit: (String) -> Unit,onEmpty: ((Int)->Unit)?=null) {
         require(count in 1..5000) { "PDF должен содержать от 1 до 5000 страниц" }
         var characters=0L
         for(page in 0 until count) {
             checkCancelled()
             val text=readPage(page)
+            if(text.none {it.isNotBlank()} && onEmpty!=null) {onEmpty(page);continue}
             require(text.any { it.isNotBlank() }) { "Страница "+(page+1)+" не содержит текста (возможен скан). Используйте распознавание с ИИ; частичный импорт не сохранён" }
             for(block in text) {
                 checkCancelled()

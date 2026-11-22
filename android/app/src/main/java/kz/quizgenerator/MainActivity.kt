@@ -119,7 +119,7 @@ private fun AccountWorkspace(activity: ComponentActivity,auth: AuthClient,accoun
 private enum class Page(val title: String, val glyph: Glyph? = null) {
     HOME("Главная", Glyph.HOME), CREATE("Создать", Glyph.ADD), LIBRARY("Библиотека", Glyph.LIBRARY),
     PREPARATION("Подготовка", Glyph.PLAN), AI("Создать с ИИ"), CARDS("Карточки"), SETTINGS("Настройки"),
-    ACCOUNT("Личный кабинет"), EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
+    ACCOUNT("Личный кабинет"), WORKSPACE("Учебный набор"), SOURCE("Источник"), EDITOR("Редактор"), QUESTION("Вопрос"), REVIEW("Тест"), QUIZ("Прохождение"), RESULTS("Результат")
 }
 
 private enum class Confirmation { DISCARD_DRAFT, LEAVE_QUIZ, FINISH_QUIZ }
@@ -134,6 +134,8 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     var sessionQuiz by remember { mutableStateOf(restored?.quiz) }
     var wallDeadline by rememberSaveable { mutableLongStateOf(restored?.wallDeadline ?: 0L) }
     var page by rememberSaveable { mutableStateOf(if (restored != null) Page.QUIZ else Page.HOME) }
+    var activeSetId by rememberSaveable {mutableStateOf<String?>(null)}
+    var quizSetReturn by rememberSaveable {mutableStateOf(false)}
     var creationSource by rememberSaveable { mutableStateOf(CreationSource.CHOOSE) }
     var editorReturn by rememberSaveable { mutableStateOf(Page.CREATE) }
     var accountReturn by rememberSaveable { mutableStateOf(Page.SETTINGS) }
@@ -168,6 +170,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     var confirmation by rememberSaveable { mutableStateOf<Confirmation?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val exportSet=rememberStudySetExport(repository,study)
 
     fun openDraft(draft: QuizDraft, back: Page) {
         editor.draft = draft
@@ -184,6 +187,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     }
 
     fun openQuiz(quiz: Quiz) {
+        quizSetReturn=false
         sessionQuiz = null
         reviewOverride = quiz.takeIf { candidate -> quizzes.none { it == candidate } }
         quizId = quiz.id
@@ -238,7 +242,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
 
     LaunchedEffect(editor.imported) {
         editor.imported?.let {
-            openDraft(QuizDraft(it.quiz, document = it.document, warnings = it.warnings), Page.CREATE)
+            openDraft(QuizDraft(it.quiz, document = it.document, warnings = it.warnings), if(activeSetId!=null)Page.WORKSPACE else Page.SOURCE)
             editor.imported = null
         }
     }
@@ -259,9 +263,11 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         when (page) {
             Page.HOME -> Unit
             Page.CREATE -> { editor.cancel(); page = Page.HOME }
-            Page.AI -> page = Page.CREATE
+            Page.AI -> page = if(activeSetId!=null)Page.WORKSPACE else Page.SOURCE
+            Page.SOURCE -> {editor.cancel();page=if(activeSetId!=null)Page.WORKSPACE else Page.HOME}
+            Page.WORKSPACE -> {activeSetId=null;quizSetReturn=false;page=Page.HOME}
             Page.ACCOUNT -> page = accountReturn
-            Page.CARDS, Page.REVIEW, Page.RESULTS -> page = Page.LIBRARY
+            Page.CARDS, Page.REVIEW, Page.RESULTS -> page = if(activeSetId!=null && quizSetReturn)Page.WORKSPACE else Page.LIBRARY
             Page.SETTINGS -> page = settingsReturn
             Page.QUESTION -> page = Page.EDITOR
             Page.EDITOR -> if (editor.draft?.isDirty == true) confirmation = Confirmation.DISCARD_DRAFT else closeDraft()
@@ -327,7 +333,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ && page != Page.CARDS) {
+            if (page != Page.QUESTION && page != Page.EDITOR && page != Page.QUIZ && page != Page.CARDS && page != Page.WORKSPACE) {
                 kz.quizgenerator.ui.components.SteamTopBar(
                     if (mainPage) "TestHelper" else page.title,
                     onBack = if (!mainPage && page != Page.CARDS) ::goBack else null,
@@ -343,7 +349,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
             if (mainPage) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 tabs.forEach { tab ->
                     NavigationBarItem(page == tab, onClick = {
-                        if (tab != Page.CREATE) editor.cancel()
+                        editor.cancel();activeSetId=null;quizSetReturn=false
                         page = tab
                     }, icon = { StudyIcon(requireNotNull(tab.glyph)) }, label = { Text(tab.title, maxLines = 2) },
                         colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer))
@@ -359,16 +365,26 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                 if (restoreResult.isFailure) StudyError("Не удалось восстановить текущую попытку. Сохранённые тесты доступны")
                 screenStates.SaveableStateProvider(page.name) {
                 when (page) {
-                    Page.HOME -> HomeScreen { source -> creationSource = source; aiTask = "quizzes"; page = if (source == CreationSource.AI) Page.AI else Page.CREATE }
-                    Page.CREATE -> {
+                    Page.HOME -> StudySetHome(repository,quizzes.filter(repository::canDelete),study,
+                        onOpen={activeSetId=it;page=Page.WORKSPACE},onCreate={activeSetId=null;page=Page.CREATE},
+                        onProfile={accountReturn=Page.HOME;page=Page.ACCOUNT},onExport=exportSet,onLegacy={activeSetId=null;page=Page.LIBRARY})
+                    Page.CREATE -> NewStudySetScreen(repository,{activeSetId=it;page=Page.WORKSPACE},::goBack)
+                    Page.WORKSPACE -> activeSetId?.let {setId -> key(setId) {StudySetWorkspace(setId,repository,quizzes,study,update,::goBack,
+                        onQuiz={openQuiz(it);quizSetReturn=true},onEdit={bank->openDraft(QuizDraft(bank ?: emptyQuiz(),original=bank),Page.WORKSPACE)},
+                        onAi={aiTask=it;aiAttemptId=study.attempts.lastOrNull {a->a.mistakes.isNotEmpty()}?.id;page=Page.AI},
+                        onCardsFromQuiz={openQuiz(it);quizSetReturn=true;page=Page.WORKSPACE;showCardCreation=true},
+                        onImportQuiz={openDraft(QuizDraft(it),Page.WORKSPACE)},onExport=exportSet,
+                        onOwnText={creationSource=CreationSource.TEXT;page=Page.SOURCE})}}
+
+                    Page.SOURCE -> {
                         editor.load?.let { StudyLoading("Обработка документа", it.fraction, editor::cancel) }
                         editor.failure?.let { StudyError(it); ImportEncodingControls(editor, repository) }
                         CreationFlow(creationSource,
                             onImport = { chooser.launch(arrayOf("text/plain", "application/json", "application/pdf", "image/jpeg", "image/png", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")) },
-                            onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.CREATE) },
-                            onDraft = { openDraft(QuizDraft(it), Page.CREATE) }, onAccount = { accountReturn = page; page = Page.ACCOUNT })
+                            onAi = { aiTask = "quizzes"; page = Page.AI }, onManual = { openDraft(QuizDraft(emptyQuiz()), Page.SOURCE) },
+                            onDraft = { openDraft(QuizDraft(it), Page.SOURCE) }, onAccount = { accountReturn = page; page = Page.ACCOUNT })
                     }
-                    Page.LIBRARY -> LibraryScreen(quizzes, repository::modifiedAt, libraryError, ::openQuiz,
+                    Page.LIBRARY -> LibraryScreen(quizzes.filter(repository::canDelete), repository::modifiedAt, libraryError, ::openQuiz,
                         { openDraft(QuizDraft(it, original = it), Page.LIBRARY) }, { deleteId = it.id },
                         repository::canDelete, { page = Page.CARDS }, { page = Page.CREATE },
                         cardCount = { quiz -> study.cards.count { it.sourceQuizId == quiz.id } },
@@ -386,7 +402,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                     Page.ACCOUNT -> AccountScreen(::goBack,quizzes.filter(repository::canDelete),study,{settingsReturn=Page.ACCOUNT;page=Page.SETTINGS},onExportData)
                     Page.AI -> AiScreen(study.settings, study.attempts.firstOrNull { it.id == aiAttemptId } ?: study.attempts.lastOrNull { it.mistakes.isNotEmpty() },
                         repository, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
-                        saveCards = { update(study.copy(cards = study.cards + it)) }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask)
+                        saveCards = { cards ->val ok=update(study.copy(cards=study.cards+cards));if(ok && activeSetId!=null)runCatching {repository.sets.linkCards(activeSetId!!,cards.map {it.id})}.onFailure {libraryError="Карточки сохранены, но не прикреплены к набору"};ok }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask,studySetId=activeSetId)
                     Page.EDITOR -> editor.draft?.let { draft ->
                         DraftScreen(draft,
                             { editor.draft = draft.copy(quiz = it); draftError = null },
@@ -399,9 +415,11 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                                     EditorRules.validate(trimmed.title, trimmed.questions)
                                     if (draft.original == null) repository.addQuiz(trimmed) else repository.saveQuiz(trimmed)
                                 }.onSuccess {
+                                    if(activeSetId!=null)runCatching {repository.sets.linkQuiz(activeSetId!!,it.id)}.onFailure {libraryError="Тест сохранён в библиотеке, но не прикреплён к набору"}
                                     quizzes = repository.listQuizzes()
                                     editor.draft = null
                                     openQuiz(it)
+                                    quizSetReturn=activeSetId!=null
                                     scope.launch { snackbar.showSnackbar("Тест сохранён") }
                                 }.onFailure { draftError = it.message ?: "Не удалось сохранить тест" }
                             }, draftError, { ImportEncodingControls(editor, repository) })

@@ -22,6 +22,7 @@ internal data class ImportProgress(val document: DocumentDetails, val fraction: 
 
 class QuizRepository(private val context: Context, private val dataRoot: File = context.filesDir) {
     internal val materials = MaterialStore(dataRoot)
+    internal val sets = StudySetStore(dataRoot)
     internal val workspaceRoot: File get()=dataRoot
     private val directory get() = File(dataRoot, "quiz_banks")
 
@@ -103,12 +104,12 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
         fun report(value: Float?)=progress(ImportProgress(details,value))
         report(0f)
         materials.import(details.name,type,input,{report(null)}) {file ->
-            val text=StringBuilder();var ocr=false
+            val text=StringBuilder();var ocr=false;val emptyPages=mutableListOf<Int>()
             fun append(line: String) {report(null);require(text.length.toLong()+line.length+1<=MaterialStore.MAX_TEXT) {"В документе больше 8 млн символов"};text.append(line).append('\n')}
             file.inputStream().buffered().use {source ->
                 when(type) {
                     "docx" -> DocxTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append)
-                    "pdf" -> LocalOcr(context).use {engine -> ocr=PdfTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append) {page,p -> engine.page(page,p)}}
+                    "pdf" -> LocalOcr(context).use {engine -> ocr=PdfTextExtractor.paragraphs(source,context.cacheDir,file.length(),::report,::append,onEmpty={emptyPages+=it+1}) {page,p -> engine.page(page,p,allowEmpty=true)}}
                     "image" -> LocalOcr(context).use {engine -> ocr=true;append(engine.image(source,context.cacheDir,file.length(),::report))}
                     else -> {
                         val decoded=TextDecoder.decode(source.readBytesBounded(MaterialStore.MAX_TEXT*4))
@@ -118,7 +119,7 @@ class QuizRepository(private val context: Context, private val dataRoot: File = 
                 }
             }
             report(1f)
-            MaterialText(text.toString(),if(ocr)"Распознано локальным OCR. Проверьте формулировки и ключи" else "")
+            MaterialText(text.toString(),(if(ocr)"Распознано локальным OCR. Проверьте формулировки и ключи. " else "")+if(emptyPages.isEmpty())"" else "Без распознанного текста: "+emptyPages.size+" страниц ("+emptyPages.take(20).joinToString()+"). Возможны пропуски: проверьте оригинал. Полный PDF сохранён.")
         }
     }
 

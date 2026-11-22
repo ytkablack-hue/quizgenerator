@@ -21,6 +21,7 @@ internal class MaterialUiModel: ViewModel() {
     var progress by mutableStateOf<ImportProgress?>(null);private set
     var error by mutableStateOf<String?>(null);private set
     var ready by mutableStateOf(false);private set
+    var setRevision by mutableIntStateOf(0);private set
     var pendingCards by mutableStateOf<List<Flashcard>>(emptyList())
     private fun store()=AiDraftStore(File(requireNotNull(repo).workspaceRoot,"ai-draft.json"))
     fun bind(repository: QuizRepository) {
@@ -56,14 +57,17 @@ internal class MaterialUiModel: ViewModel() {
             } catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось открыть текст выбранного документа. Загрузите оригинал повторно"}
         }
     }
-    fun attach(uri: Uri) {
+    fun attach(uri: Uri,setId: String?=null) {
         if(!ready || attaching?.isActive==true)return
         attaching=work.launch {
             try {
                 error=null;progress=ImportProgress(DocumentDetails("Документ",null),null)
                 val worker=currentCoroutineContext()
                 val saved=withContext(Dispatchers.IO) {requireNotNull(repo).attachMaterial(uri) {worker.ensureActive();progress=it}}
-                records=listOf(saved)+records;select(saved.id)
+                records=listOf(saved)+records
+                if(setId!=null)try {withContext(Dispatchers.IO){requireNotNull(repo).sets.linkMaterial(setId,saved.id)}} catch(e: CancellationException){throw e}catch(_: Exception){error="Документ сохранён в библиотеке, но не прикреплён к набору"}
+                setRevision++
+                select(saved.id)
             } catch(e: CancellationException){throw e}
               catch(e: Exception){error=if(e is IllegalArgumentException)e.message else "Не удалось прочитать документ. Проверьте формат и свободное место"}
             finally {progress=null}

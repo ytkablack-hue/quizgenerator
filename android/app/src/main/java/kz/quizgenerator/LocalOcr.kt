@@ -40,7 +40,7 @@ internal class LocalOcr(private val context: Context): Closeable {
         } catch(e: Exception) {created.recycle();throw e}
     }
 
-    fun recognize(bitmap: Bitmap, progress: (Float)->Unit): String {
+    fun recognize(bitmap: Bitmap, progress: (Float)->Unit,allowEmpty: Boolean=false): String {
         val engine=engine(progress)
         callback=progress;stopped=null;started=SystemClock.elapsedRealtime()
         try {
@@ -49,20 +49,20 @@ internal class LocalOcr(private val context: Context): Closeable {
             engine.getHOCRText(0)
             stopped?.let {throw it};progress(.99f)
             val text=engine.getUTF8Text().orEmpty()
-            require(text.isNotBlank()) {"OCR не нашёл текста. Проверьте качество и ориентацию изображения"}
+            require(allowEmpty || text.isNotBlank()) {"OCR не нашёл текста. Проверьте качество и ориентацию изображения"}
             require(text.length<=8_000_000) {"Слишком много распознанного текста"}
             progress(1f)
             return text
         } finally {callback=null;engine.clear()}
     }
 
-    fun page(page: PdfRenderer.Page, progress: (Float)->Unit): String {
+    fun page(page: PdfRenderer.Page, progress: (Float)->Unit,allowEmpty: Boolean=false): String {
         val (width,height)=OcrLimits.dimensions(page.width,page.height)
         // PDF dimensions are points; upscale small pages for legible glyphs within the same memory bound.
         val scale=minOf(OcrLimits.LONG_EDGE.toDouble()/maxOf(width,height),3.0)
         val w=maxOf(1,(width*scale).toInt());val h=maxOf(1,(height*scale).toInt())
         val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
-        try { bitmap.eraseColor(Color.WHITE);page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_PRINT);return recognize(bitmap,progress) }
+        try { bitmap.eraseColor(Color.WHITE);page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_PRINT);return recognize(bitmap,progress,allowEmpty) }
         finally {bitmap.recycle()}
     }
 
@@ -85,25 +85,10 @@ internal class LocalOcr(private val context: Context): Closeable {
             val bitmap=BitmapFactory.decodeFile(file.absolutePath,options) ?: error("Не удалось декодировать изображение")
             var oriented: Bitmap?=null
             try {
-                oriented=orient(bitmap,file)
-                return recognize(oriented) {progress(it)}
+                oriented=ImageOrientation.apply(bitmap,file)
+                return recognize(oriented, {progress(it)})
             } finally {if(oriented!==bitmap)oriented?.recycle();bitmap.recycle()}
         } finally {file.delete()}
-    }
-    private fun orient(bitmap: Bitmap,file: File): Bitmap {
-        val orientation=runCatching {android.media.ExifInterface(file.absolutePath).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,1)}.getOrDefault(1)
-        val matrix=android.graphics.Matrix()
-        when(orientation) {
-            2 -> matrix.setScale(-1f,1f)
-            3 -> matrix.setRotate(180f)
-            4 -> {matrix.setRotate(180f);matrix.postScale(-1f,1f)}
-            5 -> {matrix.setRotate(90f);matrix.postScale(-1f,1f)}
-            6 -> matrix.setRotate(90f)
-            7 -> {matrix.setRotate(-90f);matrix.postScale(-1f,1f)}
-            8 -> matrix.setRotate(-90f)
-            else -> return bitmap
-        }
-        return Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
     }
     override fun close() {api?.recycle();api=null}
 

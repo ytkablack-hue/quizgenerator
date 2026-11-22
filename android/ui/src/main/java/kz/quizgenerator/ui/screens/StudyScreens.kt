@@ -86,12 +86,12 @@ fun LectureReadingScreen(title: String, material: String, onBack: () -> Unit, on
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit,
-                     onDelete: (String) -> Unit, onRate: (String, String) -> Boolean) {
+                     onDelete: (String) -> Unit, onRate: (String, String) -> Boolean, embedded: Boolean = false) {
     var index by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
     val actual = index.coerceIn(0, cards.lastIndex.coerceAtLeast(0))
     val card = cards.getOrNull(actual)
-    SteamPage("Карточки", onBack) {
+    SteamPage("Карточки", onBack, showHeader=!embedded) {
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 16.dp)) {
             item { SteamHeading("Повторение", "Карточка ${if (card == null) 0 else actual + 1} из ${cards.size}") }
@@ -130,8 +130,8 @@ fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit
 
 @Composable
 fun CardEditorScreen(front: String, back: String, error: String?, onFront: (String) -> Unit, onBackText: (String) -> Unit,
-                     onSave: () -> Unit, onCancel: () -> Unit) {
-    SteamPage("Карточка", onCancel) {
+                     onSave: () -> Unit, onCancel: () -> Unit, embedded: Boolean = false) {
+    SteamPage("Карточка", onCancel, showHeader=!embedded) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SteamField("Лицевая сторона", front, onFront, hint = "Вопрос или термин", singleLine = false)
         SteamField("Обратная сторона", back, onBackText, hint = "Ответ или объяснение", singleLine = false)

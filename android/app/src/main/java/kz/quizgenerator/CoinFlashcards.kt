@@ -30,7 +30,7 @@ internal object QuizCards {
 }
 
 @Composable
-internal fun CoinFlashcardsScreen(cards: List<Flashcard>, save: (List<Flashcard>) -> Boolean, onBack: () -> Unit) {
+internal fun CoinFlashcardsScreen(cards: List<Flashcard>, save: (List<Flashcard>) -> Boolean, onBack: () -> Unit, embedded: Boolean = false) {
     var form by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var front by rememberSaveable { mutableStateOf("") }
@@ -55,12 +55,12 @@ internal fun CoinFlashcardsScreen(cards: List<Flashcard>, save: (List<Flashcard>
         val card = original?.copy(front = front.trim(), back = back.trim(), evidence = AnswerEvidence.MANUAL)
             ?: Flashcard(UUID.randomUUID().toString(), front.trim(), back.trim(), evidence = AnswerEvidence.MANUAL)
         if (save(if (original == null) cards + card else cards.map { if (it.id == original.id) card else it })) close()
-    }, ::leave)
+    }, ::leave,embedded=embedded)
     else FlashcardsScreen(
         cards.map { CardRow(it.id, it.front, it.back, it.reviews, it.lastRating, it.evidence.label) }, onBack,
         onAdd = { editingId = null; front = ""; back = ""; form = true },
         onEdit = { id -> cards.firstOrNull { it.id == id }?.let { editingId = id; front = it.front; back = it.back; form = true } },
         onDelete = { removing = it },
-        onRate = { id, rating -> save(cards.map { if (it.id == id) QuizCards.rate(it, rating) else it }) }
+        onRate = { id, rating -> save(cards.map { if (it.id == id) QuizCards.rate(it, rating) else it }) },embedded=embedded
     )
 }

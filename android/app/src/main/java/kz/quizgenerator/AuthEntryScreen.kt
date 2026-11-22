@@ -46,7 +46,8 @@ internal fun AuthEntryScreen() {
         }
     }
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
-        Column(Modifier.widthIn(max=480.dp).fillMaxWidth().safeDrawingPadding().imePadding()
+        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.align(Alignment.TopCenter).widthIn(max=480.dp).fillMaxWidth().safeDrawingPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal=22.dp,vertical=20.dp),
             verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -84,6 +85,7 @@ internal fun AuthEntryScreen() {
                 TextButton(onClick={uri.openUri("https://github.com/ytkablack-hue/quizgenerator/blob/feature/android-mvp/docs/testhelper-privacy-draft.md")},modifier=Modifier.weight(1f)) {Text("Конфиденциальность",style=MaterialTheme.typography.labelSmall)}
                 TextButton(onClick={uri.openUri("https://github.com/ytkablack-hue/quizgenerator/blob/feature/android-mvp/docs/testhelper-beta-terms.md")},modifier=Modifier.weight(1f)) {Text("Условия",style=MaterialTheme.typography.labelSmall)}
             }
+        }
         }
     }
 }
