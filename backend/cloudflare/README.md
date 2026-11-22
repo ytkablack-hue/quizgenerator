@@ -1,6 +1,6 @@
 # TestHelper: user authorization for the existing Worker
 
-Status (2026-11-22): deployed to existing testhelper-ai with Firebase and SQLite AI_QUOTA. Secrets preserved. Real Firebase signup/signin and 401/403 checks passed; Gemini returned a real valid two-question quiz using retained legacy admin access. The full verified-user Firebase path awaits email confirmation. See ../../docs/CONTINUE.md for current version, rollback and exact remaining check.
+Status (2026-11-22): deployed to existing testhelper-ai with Firebase and SQLite AI_QUOTA. Secrets preserved. Real Firebase signup/signin and 401/403 checks passed; Gemini returned a real valid two-question quiz using retained legacy admin access. The full verified-user Firebase path passed on 2026-11-22: existing-account signin, fresh verified Firebase JWT, production Worker and a real Gemini two-question quiz (HTTP200, 3005ms), without legacy admin access. See ../../docs/CONTINUE.md for current version, rollback and exact remaining check.
 
 The Android app discovers public Firebase configuration from GET /api/v1/auth/config at its fixed HTTPS production base URL. Firebase Email/Password authentication owns passwords; Android stores sessions encrypted with Android Keystore in noBackupFilesDir. No shared server token or Gemini key is bundled in the APK. The Firebase Web API key is public client configuration, not an Admin credential.
 
