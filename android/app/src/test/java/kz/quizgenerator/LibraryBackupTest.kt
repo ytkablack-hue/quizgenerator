@@ -17,7 +17,7 @@ class LibraryBackupTest {
             importProblems=listOf(ImportProblem(2,"Проверить","Исходный фрагмент")))
         File(root,"quiz_banks").mkdirs();File(root,"quiz_banks/bank.json").writeText(QuizJson.serialize(quiz))
         val studyFile=File(root,"study.json");StudyStore(studyFile).save(StudyData())
-        val original=JSONObject(studyFile.readText()).apply { getJSONObject("settings").put("serverPassword","never-export").put("serverToken","never-export") }.toString()
+        val original=JSONObject(studyFile.readText()).apply { getJSONObject("settings").put("serverPassword","never-export").put("serverToken","never-export").put("accessToken","never-export").put("idToken","never-export").put("refreshToken","never-export") }.toString()
         studyFile.writeText(original)
         File(root,"auth-session.enc").writeText("private-session")
         File(root,".legacy-library-owner-v1").writeText("private-owner")

@@ -1,3 +1,7 @@
+# Контрольная точка: безопасный интерфейс локального ИИ
+
+База5947c6e. Добавлены AnswerInferenceProvider/Service/Result, key-free input, валидатор/согласие на cloud/отмена, адаптер к существующей выборке30. Production движка/скачиваний моделей нет. Убрано UI-правило первого варианта без независимой проверки. Экспорт исключает также старые settings.accessToken/idToken/refreshToken; старые answers отклоняют дроби. 17целевых tests PASS (AnswerInferenceTest,LibraryBackupTest,MultiAnswerTest,UniversityImportTest). План/размеры/реальные ограничения: docs/local-ai-plan.md.
+Пользователь разрешил Tesseract4Android4.9.0 +rus/kaz/eng. Этот OCR-этап сейчас отдельно в работе: языковые assets закреплены официальным commit87416418657359cb625c412a48b6e1d6d41c29bd и SHA256; native реализация ещё проверяется. Не считать её завершённой до тестов/сборки. Ниже исторические контрольные точки; актуальный SHA git log -1 --format=%H.
 # Контрольная точка: многоключевые ответы
 
 База d5c4659. Мультивыбор в редакторе/прохождении, сохранение selections с чтением прежних answers, точное сравнение наборов, история всех выбранных/верных вариантов. LOCAL_AI/CLOUD_AI отделены от старого INFERRED и исключены из строгой оценки. Явно обработан NoCredentialException.

@@ -117,14 +117,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                          encodingControls: @Composable () -> Unit = {}) {
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
-    var firstRule by rememberSaveable { mutableStateOf(false) }
     val quiz = draft.quiz
-    if (firstRule) StudyConfirmation("Считать первый вариант правильным?",
-        "Это предположение пользователя, а не подтверждённый ключ. Оно применяется только к вопросам без ответа. Такие вопросы не влияют на оценку до ручного подтверждения.",
-        "Применить предположение", { firstRule = false }) {
-        onChange(AnswerPolicy.assumeFirst(quiz))
-        firstRule = false
-    }
     removing?.let { id ->
         StudyConfirmation("Удалить вопрос?", "Изменение будет применено при сохранении теста.", "Удалить",
             { removing = null }) {
@@ -177,9 +170,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         Text("Без ключа: $unknown · Предположительных: $inferred" +
                             if (multiple > 0) " · С несколькими ответами: $multiple" else "")
                         Text("Предположения исключены из оценки. Подтвердите ответ вручную в вопросе.")
-                        if (unknown > 0) OutlinedButton(onClick = { firstRule = true }) {
-                            Text("Считать первый вариант правильным")
-                        }
+                        if (unknown > 0) Text("Правило первого варианта недоступно без независимой проверки 30 вопросов. Подтверждайте ключи отдельно; автоматического угадывания нет.")
                     }
                 }
                 if (compact) item { actions() }

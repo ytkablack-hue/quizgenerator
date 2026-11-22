@@ -22,7 +22,7 @@ internal object LibraryBackup {
                 if(relative=="study.json") {
                     require(file.length()<=16L*1024*1024) { "История больше 16 МБ. Сохраните тесты отдельно" }
                     val value=JSONObject(file.readText(Charsets.UTF_8))
-                    value.optJSONObject("settings")?.let { it.remove("serverPassword");it.remove("serverUrl");it.remove("serverToken") }
+                    value.optJSONObject("settings")?.let { listOf("serverPassword","serverUrl","serverToken","server","accessToken","apiKey","password","idToken","refreshToken").forEach(it::remove) }
                     zip.write(value.toString().toByteArray(Charsets.UTF_8))
                 } else file.inputStream().buffered().use { input ->
                     val bytes=ByteArray(32*1024)

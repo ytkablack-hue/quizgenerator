@@ -21,7 +21,7 @@ internal class ActiveAttemptStore(private val file: File) {
         val quiz = QuizJson.parse(root.getJSONObject("quiz").toString())
         val values = root.getJSONArray("answers")
         require(values.length() == quiz.questions.size)
-        val answers = List(values.length()) { i -> if (values.isNull(i)) null else values.getInt(i).also { require(it in quiz.questions[i].options.indices) } }
+        val answers = List(values.length()) { i -> if (values.isNull(i)) null else values.get(i).let { n -> require(n is Number && n.toDouble()==n.toInt().toDouble() && n.toInt() in quiz.questions[i].options.indices);n.toInt() } }
         val selections=root.optJSONArray("selections")?.let { all ->
             require(all.length()==quiz.questions.size)
             List(all.length()) { i ->
