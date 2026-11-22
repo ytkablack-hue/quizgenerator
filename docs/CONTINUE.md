@@ -15,7 +15,7 @@
 - Существующий Worker testhelper-ai, https://testhelper-ai.zhantik690.workers.dev, аккаунт Cloudflare 08a62d9bfa36d8f2360007dd14236f23. Последняя UI-проверка: Active Latest 56dc4423. Новый backend ещё НЕ развёрнут; bindings AI_QUOTA пока нет. Старый Gemini ранее отвечал, это не проверка новой авторизации.
 - GEMINI_API_KEY и TESTHELPER_ACCESS_TOKEN уже есть в production; НЕ заменять/раскрывать. Значение общего кода в защищённом C:/Users/Admin/AppData/Local/TestHelper-private/server-access.txt, НЕ выводить и НЕ копировать в Git/APK.
 - История Cloudflare сохраняет прежние версии. 22 ноября исходник 56dc4423 сохранён из редактора в android/.build-tools/worker-56dc4423-backup.mjs (игнорируется Git). Текст LF: 8300 символов, контрольное сравнение с редактором выполнено; SHA-256 DE04DF3E32585E7961B2691AF64344AF90FA7C7AD77456CA0AC22129CDC0215F. node --check успешен. Откат после DO migration должен сохранять экспорт класса AiQuota; не рассчитывать на слепой rollback к версии без класса.
-- Wrangler не установлен. Панель Durable Objects подтверждает No Durable Objects found и не предлагает создания; Add binding позволяет только выбрать ранее созданный объект. Запрошено разрешение установить официальный Wrangler локально в игнорируемую папку проекта для стандартной SQLite-миграции; ответа пока нет. Не устанавливать без разрешения. Браузерный Quick Edit доступен, но требует точного фокуса Monaco; обычный Ctrl+A иногда выбирает внешнюю страницу. Не извлекать cookies/auth токены, не делать fetch через browser evaluate.
+- Wrangler 4.166.0 установлен с разрешения пользователя из registry.npmjs.org в android/.build-tools/wrangler-cli (76 packages). Запуск через android/.build-tools/wrangler.ps1, XDG_CONFIG_HOME и логи/метрики настроены только в процессе; каталог OAuth ограничен ACL текущего пользователя. Глобальная установка не выполнялась. OAuth пока НЕ подтверждён: запрошены account:read, user:read, workers_scripts:write (+ автоматически offline_access). На странице видны User Read, Background Access, Account Read, Workers Scripts Write; Пользователь выбрал ручное Authorize; ожидается нажатие в Edge. Не нажимать вместо него. Если ожидание CLI истекло, повторить login и открыть НОВУЮ выданную ссылку, не старую. Не читать токены и cookies браузера.
 
 ## Следующий шаг
 Первая команда PowerShell (только чтение):
@@ -37,3 +37,13 @@ C:/Projects/quizgenerator/android/app/build/outputs/apk/debug/app-debug.apk
 10600504 bytes; SHA-256 731242cfd46abcfde0212ddf3c5b642604f0a637ddcc1ee93ed79e54ebe62430 (перепроверен 22 ноября).
 Debug certificate SHA-256 710f7ec2403e51ae9423bc84de097ace7abb474d5f6d89c943d25075b17f333e (ранее проверен).
 APK устанавливаемый, но новая регистрация/ИИ не готовы до rollout Worker. Не заявлять готовность live-интеграции. На Android вручную остаются вход, письма, Gemini, UI, таймер в фоне/после убийства процесса, обновление с сохранением данных; устройство не использовалось.
+
+## Подготовлено после d19c399
+- Игнорируемые конфиги android/.build-tools/wrangler-rollback.toml и wrangler-rollout.toml: существующее имя/account, keep_vars=true, Firebase public vars из скачанного JSON, binding AI_QUOTA/AiQuota, migration auth-quota-v1/new_sqlite_classes. Оба deploy --dry-run успешны. 32 backend-теста повторно прошли. Локальные конфиги/CLI/бандлы не добавлять в Git.
+- Сначала deploy --config android/.build-tools/wrangler-rollback.toml: старый обработчик 56dc4423 + экспорт оригинального AiQuota. Это создаёт SQLite, сохраняет старое поведение и даёт совместимую серверную версию для rollback без удаления namespace. Сохранить выданный version ID. Только после проверки binding/секретов выполнить deploy --config android/.build-tools/wrangler-rollout.toml. Нельзя удалять migration/class/namespace или делать rollback на домиграционную 56dc4423 вслепую. keep_vars сохраняет dashboard vars; secrets не переопределяются конфигом.
+- Если новую версию нужно откатить, deploy wrangler-rollback.toml сохраняет класс/namespace; это возвращает прежнюю token-auth логику, не удаляет данные. Не применять deleted_classes.
+- Следующая команда для OAuth (локальный CLI, официальный стандартный flow):
+
+    & .\android\.build-tools\wrangler.ps1 login --browser=false --scopes account:read user:read workers_scripts:write
+
+- Gmail connector подключён к другому адресу, не адресу владельца Firebase; чужую почту не читать. Для реального signup/verification потребуется доступ к письму тестового аккаунта либо подтверждение ссылки владельцем. Реальная регистрация/Gemini новой версии ещё НЕ запускались. Production не изменён.
