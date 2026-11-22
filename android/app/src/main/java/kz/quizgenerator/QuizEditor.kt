@@ -43,7 +43,7 @@ internal object EditorRules {
         require(question.text.isNotBlank()) { "Введите текст вопроса" }
         require(question.options.size in 2..QuizLimits.OPTIONS) { "Добавьте от двух до 64 вариантов ответа" }
         require(question.options.none(String::isBlank)) { "Заполните все варианты ответа" }
-        require(question.correctIndex == null || question.correctIndex in question.options.indices) { "Выберите существующий вариант" }
+        require(question.correctIndices.all { it in question.options.indices }) { "Выберите существующий вариант" }
     }
 }
 
@@ -156,9 +156,11 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                 }
                 item {
                     StudyPanel(tone = PanelTone.SKY) {
-                        val unknown = quiz.questions.count { it.correctIndex == null }
+                        val unknown = quiz.questions.count { it.correctIndices.isEmpty() }
                         val inferred = quiz.questions.count { it.evidence == AnswerEvidence.INFERRED }
-                        Text("Без ключа: $unknown · Предположительных: $inferred")
+                        val multiple = quiz.questions.count { it.isMultiAnswer }
+                        Text("Без ключа: $unknown · Предположительных: $inferred" +
+                            if (multiple > 0) " · С несколькими ответами: $multiple" else "")
                         Text("Предположения исключены из оценки. Подтвердите ответ вручную в вопросе.")
                         if (unknown > 0) OutlinedButton(onClick = { firstRule = true }) {
                             Text("Считать первый вариант правильным")
@@ -174,12 +176,13 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         Text("${index + 1}. ${question.text}", style = MaterialTheme.typography.titleMedium)
                         if (preview) {
                             question.options.forEachIndexed { i, value ->
-                                Text(if (i == question.correctIndex) "${question.evidence.label} · $value" else "• $value")
+                                Text(if (i in question.correctIndices) "${question.evidence.label} · $value" else "• $value")
                             }
                             question.explanation?.let { Text(it) }
                             question.sourceExcerpt?.let { Text("Цитата: $it", style = MaterialTheme.typography.bodySmall) }
                         } else {
-                            Text(question.evidence.label + (question.correctIndex?.let { " · ${question.options[it]}" } ?: ""))
+                            Text(question.evidence.label + question.correctIndices
+                                .joinToString(prefix = if (question.correctIndices.isEmpty()) "" else " · ") { question.options[it] })
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = { onQuestion(index) }) { Text("Править") }
                                 TextButton(enabled = index > 0, onClick = {
@@ -246,7 +249,8 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
         item { StudyField(explanation, { explanation = it.take(65_536) }, "Пояснение") }
         item { Button(onClick = {
             val changed = question.copy(text = text.trim(), options = options.map(String::trim),
-                correctIndex = correct, explanation = explanation.trim().ifBlank { null },
+                correctIndex = correct, additionalCorrectIndices = emptyList(),
+                explanation = explanation.trim().ifBlank { null },
                 evidence = if (correct == null) AnswerEvidence.UNKNOWN
                     else if (correct != question.correctIndex || text != question.text || options != question.options || confirmed)
                         AnswerEvidence.MANUAL else question.evidence)

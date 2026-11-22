@@ -44,7 +44,8 @@ internal fun StartScreen(quiz: Quiz, minutes: Int, onMinutes: (Int) -> Unit,
         items(quiz.questions, key = { it.id }) { question ->
             StudyPanel {
                 Text(question.text, style = MaterialTheme.typography.titleMedium)
-                Text(question.evidence.label + (question.correctIndex?.let { " · ${question.options[it]}" } ?: ""))
+                Text(question.evidence.label + question.correctIndices
+                    .joinToString(prefix = if (question.correctIndices.isEmpty()) "" else " · ") { question.options[it] })
             }
         }
     }
@@ -158,7 +159,8 @@ internal fun ResultsScreen(quiz: Quiz, answers: List<Int?>, expired: Boolean, sh
                 Text(question.text, style = MaterialTheme.typography.titleMedium)
                 Text("Твой ответ · ${answers[index]?.let(question.options::get) ?: "Пропущен"}")
                 if (showAnswers) {
-                    question.correctIndex?.let { Text("Правильный ответ · ${question.options[it]}") }
+                    if (question.correctIndices.isNotEmpty()) Text("Правильный ответ · " +
+                        question.correctIndices.joinToString { question.options[it] })
                     question.explanation?.let { Text(it) }
                 }
             }

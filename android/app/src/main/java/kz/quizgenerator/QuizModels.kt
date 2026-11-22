@@ -7,8 +7,20 @@ data class QuizQuestion(
     val correctIndex: Int?,
     val explanation: String?,
     val sourceExcerpt: String? = null,
-    val evidence: AnswerEvidence = if (correctIndex == null) AnswerEvidence.UNKNOWN else AnswerEvidence.SOURCE
-)
+    val evidence: AnswerEvidence = if (correctIndex == null) AnswerEvidence.UNKNOWN else AnswerEvidence.SOURCE,
+    /**
+     * Extra correct options for multiple-answer questions. [correctIndex] stays the primary
+     * (first) answer so existing single-answer code keeps working. Never store an index here
+     * that is already equal to [correctIndex].
+     */
+    val additionalCorrectIndices: List<Int> = emptyList()
+) {
+    /** Authoritative answer key. Single-answer questions yield exactly one element. */
+    val correctIndices: List<Int>
+        get() = (listOfNotNull(correctIndex) + additionalCorrectIndices).distinct().sorted()
+
+    val isMultiAnswer: Boolean get() = correctIndices.size > 1
+}
 
 data class Quiz(
     val id: String,
@@ -36,10 +48,13 @@ object QuizScorer {
         var ungraded = 0
 
         quiz.questions.forEachIndexed { index, question ->
+            val key = question.correctIndices
             when {
-                question.correctIndex == null || question.evidence == AnswerEvidence.INFERRED || question.evidence == AnswerEvidence.UNKNOWN -> ungraded++
+                // Multiple-answer questions stay ungraded until the UI can collect a set of answers.
+                key.size != 1 || question.evidence == AnswerEvidence.INFERRED ||
+                    question.evidence == AnswerEvidence.UNKNOWN -> ungraded++
                 answers[index] == null -> skipped++
-                answers[index] == question.correctIndex -> correct++
+                answers[index] == key[0] -> correct++
                 else -> incorrect++
             }
         }

@@ -40,19 +40,28 @@ object QuizJson {
                 }
                 number.toInt()
             }
-            require(correctIndex == null || correctIndex in options.indices) { "Неверный индекс правильного ответа" }
+            val keyIndices = if (item.has("correctIndices") && !item.isNull("correctIndices")) {
+                val raw = item.getJSONArray("correctIndices")
+                (0 until raw.length()).map { raw.getInt(it) }
+            } else {
+                listOfNotNull(correctIndex)
+            }
+            require(keyIndices.all { it in options.indices }) { "Неверный индекс правильного ответа" }
+            val primary = correctIndex ?: keyIndices.firstOrNull()
+            require(primary == null || primary in options.indices) { "Неверный индекс правильного ответа" }
+            val additional = keyIndices.filter { it != primary }.distinct()
             val explanation = if (!item.has("explanation") || item.isNull("explanation")) {
                 null
             } else {
                 item.getString("explanation").trim().ifEmpty { null }
             }
             val sourceExcerpt = item.opt("sourceExcerpt") as? String
-            val evidence = if (correctIndex == null) AnswerEvidence.UNKNOWN else {
+            val evidence = if (primary == null) AnswerEvidence.UNKNOWN else {
                 val fallback = if (root.optString("source") == "ai") AnswerEvidence.INFERRED else AnswerEvidence.SOURCE
                 if (!item.has("answerEvidence")) fallback
                 else runCatching { AnswerEvidence.valueOf(item.getString("answerEvidence")) }.getOrDefault(AnswerEvidence.INFERRED)
             }
-            QuizQuestion(questionId, text, options, correctIndex, explanation, sourceExcerpt, evidence)
+            QuizQuestion(questionId, text, options, primary, explanation, sourceExcerpt, evidence, additional)
         }
 
         return Quiz(id, title, questions, root.optString("source") == "ai")
@@ -74,6 +83,7 @@ object QuizJson {
                     .put("text", q.text)
                     .put("options", options)
                     .put("correctIndex", q.correctIndex ?: JSONObject.NULL)
+                    .put("correctIndices", JSONArray(q.correctIndices))
                     .put("explanation", q.explanation ?: JSONObject.NULL)
                     .put("sourceExcerpt", q.sourceExcerpt ?: JSONObject.NULL)
                     .put("answerEvidence", q.evidence.name)

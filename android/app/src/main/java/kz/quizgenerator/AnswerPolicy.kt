@@ -19,11 +19,13 @@ enum class AnswerEvidence(val label: String) {
 
 internal object AnswerPolicy {
     fun assumeFirst(quiz: Quiz): Quiz = quiz.copy(questions = quiz.questions.map {
-        if (it.correctIndex == null) it.copy(correctIndex = 0, evidence = AnswerEvidence.INFERRED) else it
+        if (it.correctIndices.isEmpty()) it.copy(
+            correctIndex = 0, additionalCorrectIndices = emptyList(), evidence = AnswerEvidence.INFERRED
+        ) else it
     })
 
     fun sample(quiz: Quiz): List<QuizQuestion> {
-        val eligible = quiz.questions.filter { it.correctIndex == null }
+        val eligible = quiz.questions.filter { it.correctIndices.isEmpty() }
         if (eligible.size < 30) return emptyList()
         val third = eligible.size / 3
         return (0..2).flatMap { part ->
@@ -89,7 +91,12 @@ internal object SampleAnswerCheck {
         val missing = sample.filter { AnswerPolicy.fingerprint(it) !in saved }
         if (missing.isNotEmpty()) {
             // Remove explanations and keys so the provider supplies independent answers.
-            val clean = missing.map { it.copy(correctIndex = null, evidence = AnswerEvidence.UNKNOWN, explanation = null, sourceExcerpt = null) }
+            val clean = missing.map {
+                it.copy(
+                    correctIndex = null, additionalCorrectIndices = emptyList(),
+                    evidence = AnswerEvidence.UNKNOWN, explanation = null, sourceExcerpt = null
+                )
+            }
             val found = provider.verify(clean)
             require(found.keys == missing.map(AnswerPolicy::fingerprint).toSet() &&
                 missing.all { found[AnswerPolicy.fingerprint(it)] in it.options.indices }) {

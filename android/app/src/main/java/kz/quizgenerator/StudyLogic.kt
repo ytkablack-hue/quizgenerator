@@ -48,7 +48,7 @@ internal object StudyLogic {
             require(it.text.isNotBlank() && it.options.size in 2..QuizLimits.OPTIONS && it.options.none(String::isBlank)) {
                 "Вопросу нужны текст и 2–64 непустых варианта"
             }
-            require(it.correctIndex == null || it.correctIndex in it.options.indices) { "Неверный ключ" }
+            require(it.correctIndices.all { index -> index in it.options.indices }) { "Неверный ключ" }
             it.copy(text = it.text.trim(), options = it.options.map(String::trim))
         })
     }
@@ -59,9 +59,12 @@ internal object StudyLogic {
         val selected = if (settings.limit > 0) ordered.take(settings.limit) else ordered
         return quiz.copy(questions = if (settings.shuffleOptions) selected.map { question ->
             val order = question.options.indices.shuffled(random)
+            val mapped = question.correctIndices.map(order::indexOf)
+            val primary = question.correctIndex?.let(order::indexOf)
             question.copy(
                 options = order.map(question.options::get),
-                correctIndex = question.correctIndex?.let(order::indexOf)
+                correctIndex = primary,
+                additionalCorrectIndices = mapped.filter { it != primary }
             )
         } else selected)
     }
@@ -70,7 +73,9 @@ internal object StudyLogic {
     fun complete(id: String, quiz: Quiz, answers: List<Int?>, now: Long): Attempt {
         val score = QuizScorer.score(quiz, answers)
         val mistakes = quiz.questions.mapIndexedNotNull { index, question ->
-            val correct = question.correctIndex.takeIf { question.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }
+            val key = question.correctIndices
+            val correct = key.singleOrNull()
+                ?.takeIf { question.evidence in setOf(AnswerEvidence.SOURCE, AnswerEvidence.MANUAL) }
             if (correct == null || answers[index] == correct) null else Mistake(
                 question.text, answers[index]?.let(question.options::getOrNull),
                 question.options[correct], question.explanation

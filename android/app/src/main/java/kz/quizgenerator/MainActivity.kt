@@ -234,7 +234,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
 
     if (showCardCreation && currentQuiz != null) {
         val quiz = currentQuiz
-        val unknown = quiz.questions.count { it.correctIndex == null }
+        val unknown = quiz.questions.count { it.correctIndices.isEmpty() }
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showCardCreation = false },
             title = { Text("Карточки из теста") },
