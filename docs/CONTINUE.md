@@ -6,7 +6,9 @@
 
 Фактически выполнены: 35 целевых Android-тестов PASS (BatchJobs15, StudyWorkflowRegression10, StudySetExport4, UniversityImport6); 62 backend tests PASS. Проверены 200/203/500-планы, 200/500-импорт с тремя проблемными записями, старые JSON, локальная изоляция/источник, неполные ответы/цитаты, сохранение/перезапуск/отмена/ошибка диска/409/429/503. Моки не означают живую генерацию Gemini.
 
-Следующее действие: версия следующей беты, полный :app:testDebugUnitTest :app:lintDebug :app:assembleDebug через android/.build-tools/run-checks.ps1 (in-process Kotlin), затем подпись/zipalign/SHA-256 и docs/verification-study-batch.md. Не повторять уже выполненный аудит.
+Завершение этапа: клиентский commit94c324f успешно отправлен. Локальная0.8.0-beta/code10 собрана:203Android tests PASS,62backend PASS,Lint0errors/7warnings,assembleDebug PASS,прежняя подпись и zipalign16KiB PASS. APK/размер/SHA и команды:docs/verification-study-batch.md. Последний SHA после сохранения отчёта — git log -1; все предыдущие точки0a5651f/36f567e/94c324f сохранены.
+
+Следующее действие: по отдельному разрешению владельца — docs/study-batch-rollout.md (существующий Worker, прежний deployment для rollback, без новых migrations/secrets/квот). Затем реальный JWT→Gemini и телефонная приёмка. Код и APK до новой правки повторно не собирать. Начать следующую сессию с git status --short --branch и этого файла.
 
 До отдельного согласия НЕ развёртывать /lectures /answers /capabilities в production; UI сообщает об их недоступности. Действующие quizzes могут использоваться пакетно по явному согласию, но живые запросы в этой сессии не делались. Сохраняются квоты/SQLite/JWT/Firebase/secrets/тарифы. Native service не обещает продолжения после force-stop: ручное восстановление, неопределённый запрос не повторяется автоматически.
 
