@@ -67,7 +67,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
             val material=if(mode==AiTask.REVIEW)MaterialSlices.compose(body,"") else AiGeneration.build(
                 draft.inputMode,draft.topic,draft.ownText,body,draft.extra,draft.difficulty,draft.count.toIntOrNull() ?: 0).getString("material")
             require(material.isNotBlank() || draft.topic.isNotBlank()) {"Добавьте тему или материал"}
-            pending=GenerationRequest(mode,if(mode==AiTask.REVIEW)"" else draft.topic,material,draft.difficulty,draft.count.toIntOrNull() ?: 0,series,parts.indexOf(selected),parts.size,selected!=null && !selected.oversized)
+            pending=GenerationRequest(mode,if(mode==AiTask.REVIEW)"" else draft.topic.trim(),material,draft.difficulty,draft.count.toIntOrNull() ?: 0,series,parts.indexOf(selected),parts.size,selected!=null && !selected.oversized)
         } catch(e: Exception) {failure=e.message ?: "Проверьте выбранный фрагмент"}
     }
     pending?.let {request ->

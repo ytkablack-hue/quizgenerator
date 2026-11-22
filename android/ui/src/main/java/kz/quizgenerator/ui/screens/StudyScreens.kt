@@ -85,20 +85,27 @@ fun LectureReadingScreen(title: String, material: String, onBack: () -> Unit, on
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit,
+fun FlashcardsScreen(allCards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit, onEdit: (String) -> Unit,
                      onDelete: (String) -> Unit, onRate: (String, String) -> Boolean, embedded: Boolean = false) {
     var index by rememberSaveable { mutableIntStateOf(0) }
     var flipped by rememberSaveable { mutableStateOf(false) }
     var reviewed by rememberSaveable {mutableStateOf<List<String>>(emptyList())}
+    var difficult by rememberSaveable {mutableStateOf<List<String>?>(null)}
+    val cards=if(difficult==null)allCards else allCards.filter {it.id in difficult.orEmpty()}
+    val hardIds=CardSessionRules.difficult(allCards)
     val actual = index.coerceIn(0, cards.lastIndex.coerceAtLeast(0))
     val card = cards.getOrNull(actual)
     val finished=CardSessionRules.completed(cards.map {it.id},reviewed)
     SteamPage("Карточки", onBack, showHeader=!embedded) {
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 16.dp)) {
+            item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                FilterChip(difficult==null,{difficult=null;reviewed=emptyList();index=0;flipped=false},label={Text("Все")})
+                FilterChip(difficult!=null,{difficult=hardIds;reviewed=emptyList();index=0;flipped=false},enabled=hardIds.isNotEmpty(),label={Text("Трудные ("+hardIds.size+")")})
+            }}
             item { SteamHeading("Повторение", "Карточка ${if (card == null) 0 else actual + 1} из ${cards.size}") }
             item {Text("Повторено в занятии: "+CardSessionRules.count(cards.map {it.id},reviewed)+" из "+cards.size)}
-            if(finished) item {SteamCard {Text("Занятие завершено",style=MaterialTheme.typography.headlineSmall);Text("Все карточки этого набора повторены. Оценки сохранены.");SteamButton("Ещё один круг",onClick={reviewed=emptyList();index=0;flipped=false});SteamButton("Вернуться к набору",tone=SteamTone.PALE,onClick=onBack)}}
+            if(finished) item {SteamCard {Text("Занятие завершено",style=MaterialTheme.typography.headlineSmall);Text("Все карточки этого занятия повторены. Оценки сохранены.");SteamButton("Ещё один круг",onClick={reviewed=emptyList();index=0;flipped=false});SteamButton("Вернуться к набору",tone=SteamTone.PALE,onClick=onBack)}}
             else if (card != null) {
                 item { SteamCard(Modifier.clickable { flipped = !flipped }) {
                     Text(if (flipped) "Обратная сторона" else "Лицевая сторона", color = SteamBlue)
@@ -127,7 +134,7 @@ fun FlashcardsScreen(cards: List<CardRow>, onBack: () -> Unit, onAdd: () -> Unit
                         TextButton(onClick = { onDelete(card.id) }) { Text("Удалить") }
                     }
                 }
-            } else item { SteamCard { Text("Пока нет карточек", fontWeight = FontWeight.Bold) } }
+            } else item { SteamCard { Text(if(difficult==null)"Пока нет карточек" else "В этом занятии больше нет карточек", fontWeight = FontWeight.Bold) } }
             item { SteamButton("Добавить карточку", onClick = onAdd) }
         }
     }

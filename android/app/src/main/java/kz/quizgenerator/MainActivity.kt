@@ -159,6 +159,14 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
     } ?: 0L) }
     var seconds by remember(deadline) { mutableIntStateOf(QuizTimer.secondsLeft(deadline, SystemClock.elapsedRealtime())) }
     var expired by rememberSaveable { mutableStateOf(false) }
+    var sessionExam by rememberSaveable {mutableStateOf(restored?.examMode ?: study.settings.examMode)}
+    var sessionHints by rememberSaveable {mutableStateOf(restored?.hints ?: study.settings.showHints)}
+    var sessionReveal by rememberSaveable {mutableStateOf(restored?.revealAnswers ?: study.settings.showAnswers)}
+    var startedAt by rememberSaveable {mutableLongStateOf(restored?.startedAt ?: 0)}
+    var startedElapsed by rememberSaveable {mutableLongStateOf(restored?.startedElapsed ?: 0)}
+    var startedBoot by rememberSaveable {mutableIntStateOf(restored?.startedBootCount ?: bootCount)}
+    var marked by rememberSaveable {mutableStateOf(restored?.bookmarks?.toList().orEmpty())}
+    var completedDuration by rememberSaveable {mutableStateOf<Long?>(null)}
     val bankPrepared = remember(currentQuiz, study.settings, seed) { currentQuiz?.let { StudyLogic.prepare(it, study.settings, seed) } }
     val prepared = sessionQuiz ?: bankPrepared
 
@@ -197,10 +205,13 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         page = Page.REVIEW
     }
 
-    fun start(quiz: Quiz) {
+    fun start(quiz: Quiz,options: StudySettings=study.settings) {
         questionIndex = 0
         seed = System.nanoTime()
-        sessionQuiz = StudyLogic.prepare(quiz, study.settings, seed)
+        sessionQuiz = StudyLogic.prepare(quiz, options, seed)
+        sessionExam=options.examMode;sessionHints=options.showHints;sessionReveal=options.showAnswers
+        startedAt=System.currentTimeMillis();startedElapsed=SystemClock.elapsedRealtime();startedBoot=bootCount;marked=emptyList();completedDuration=null
+        timerMinutes=options.minutes
         answers = ArrayList(List(sessionQuiz!!.questions.size) { null })
         selections = List(sessionQuiz!!.questions.size) { emptySet() }
         attemptId = UUID.randomUUID().toString()
@@ -215,20 +226,22 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         if (page != Page.QUIZ) return
         val quiz = prepared ?: return
         if (answers.size != quiz.questions.size || selections.size != quiz.questions.size) return
-        val attempt = StudyLogic.completeSelections(attemptId, quiz, selections, System.currentTimeMillis())
+        val duration=StudySessionPolicy.duration(startedAt,startedElapsed,startedBoot,bootCount,System.currentTimeMillis(),SystemClock.elapsedRealtime(),wallDeadline,deadline)
+        val attempt = StudyLogic.completeSelections(attemptId, quiz, selections, System.currentTimeMillis()).copy(durationMillis=duration,examMode=sessionExam)
         if (study.attempts.none { it.id == attempt.id } && !update(study.copy(attempts = study.attempts + attempt))) {
             libraryError = "Не удалось сохранить результат. Повторите завершение"
             return
         }
+        completedDuration=duration
         runCatching { activeStore.clear() }
         expired = QuizTimer.expired(deadline, SystemClock.elapsedRealtime())
         confirmation = null
         page = Page.RESULTS
     }
 
-    LaunchedEffect(page, prepared, answers, selections, questionIndex, deadline) {
+    LaunchedEffect(page, prepared, answers, selections, questionIndex, deadline,marked) {
         if (page == Page.QUIZ && prepared != null && selections.size == prepared.questions.size && answers.size == prepared.questions.size) {
-            val snapshot=ActiveAttempt(prepared,answers,questionIndex,attemptId,deadline,wallDeadline,bootCount,selections)
+            val snapshot=ActiveAttempt(prepared,answers,questionIndex,attemptId,deadline,wallDeadline,bootCount,selections,sessionExam,sessionHints,sessionReveal,startedAt,startedElapsed,startedBoot,marked.toSet())
             val ticket=activeStore.ticket()
             val savingWorker=kotlin.coroutines.coroutineContext
             runCatching {kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){activeStore.save(snapshot,ticket){savingWorker.ensureActive()}}}
@@ -374,7 +387,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                 when (page) {
                     Page.HOME -> StudySetHome(repository,quizzes.filter(repository::canDelete),study,
                         onOpen={activeSetId=it;page=Page.WORKSPACE},onCreate={activeSetId=null;page=Page.CREATE},
-                        onProfile={accountReturn=Page.HOME;page=Page.ACCOUNT},onExport=exportSet,onLegacy={activeSetId=null;page=Page.LIBRARY})
+                        onProfile={accountReturn=Page.HOME;page=Page.ACCOUNT},onExport=exportSet,onLegacy={activeSetId=null;page=Page.LIBRARY},onPreparation={activeSetId=null;page=Page.PREPARATION})
                     Page.CREATE -> NewStudySetScreen(repository,{activeSetId=it;page=Page.WORKSPACE},::goBack)
                     Page.WORKSPACE -> activeSetId?.let {setId -> key(setId) {StudySetWorkspace(setId,repository,quizzes,study,update,::goBack,
                         onQuiz={openQuiz(it);quizSetReturn=true},onEdit={bank->openDraft(QuizDraft(bank ?: emptyQuiz(),original=bank),Page.WORKSPACE)},
@@ -450,12 +463,12 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         }
                     }
                     Page.REVIEW -> currentQuiz?.let { quiz ->
-                        StartScreen(quiz, timerMinutes, { timerMinutes = it },
-                            { openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW) }, { start(quiz) }, { showCardCreation = true })
+                        StartScreen(quiz,study.settings,
+                            { openDraft(QuizDraft(quiz, original = quiz), Page.REVIEW) },{options->val saved=update(study.copy(settings=options));if(saved)start(quiz,options);saved}, { showCardCreation = true },{page=if(activeSetId!=null)Page.WORKSPACE else Page.LIBRARY})
                     }
                     Page.QUIZ -> prepared?.takeIf { questionIndex in it.questions.indices && answers.size == it.questions.size }?.let {
                         RunScreen(it, questionIndex, selections.getOrNull(questionIndex).orEmpty(), seconds.takeIf { deadline != 0L },
-                            study.settings.showHints, { option ->
+                            sessionHints, { option ->
                                 if (QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finish()
                                 else {
                                     val old=selections.getOrNull(questionIndex).orEmpty()
@@ -465,10 +478,12 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                                 }
                             }, { if (questionIndex > 0) questionIndex-- }, {
                                 if (QuizTimer.expired(deadline, SystemClock.elapsedRealtime())) finish() else questionIndex++
-                            }, { confirmation = Confirmation.FINISH_QUIZ })
+                            }, { confirmation = Confirmation.FINISH_QUIZ },examMode=sessionExam,bookmarked=it.questions[questionIndex].id in marked,onBookmark={marked=StudySessionPolicy.bookmark(marked.toSet(),it.questions[questionIndex].id).toList()},markedCount=marked.size)
                     }
                     Page.RESULTS -> prepared?.takeIf { answers.size == it.questions.size }?.let {
-                        ResultsScreen(it, selections, expired, study.settings.showAnswers, { currentQuiz?.let(::start) }, ::goBack,repeatMistakes={StudyResultRules.mistakes(it,selections)?.let(::start)})
+                        ResultsScreen(it, selections, expired, sessionReveal, { currentQuiz?.let {bank->start(bank)} }, ::goBack,
+                            repeatMistakes={StudyResultRules.mistakes(it,selections)?.let {bank->start(bank)}},durationMillis=completedDuration ?: study.attempts.firstOrNull {a->a.id==attemptId}?.durationMillis,
+                            onCardsFromMistakes={val cards=StudySessionPolicy.mistakeCards(it,selections,study.cards);if(update(study.copy(cards=study.cards+cards))){if(activeSetId!=null)runCatching {repository.sets.linkCards(activeSetId!!,cards.map {c->c.id})}.onFailure {libraryError="Карточки сохранены, но не связаны с набором"};scope.launch {snackbar.showSnackbar(if(cards.isEmpty())"Все карточки этих ошибок уже есть" else "Добавлено карточек: "+cards.size)}}})
                     }
                 }
                 }

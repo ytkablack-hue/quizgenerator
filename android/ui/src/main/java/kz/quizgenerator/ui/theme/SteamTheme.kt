@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 // Stitch palette: pressed blue for readable small white labels; sky blue for accents.
 val SteamNavy = Color(0xFF1B2838)
 val SteamGreen: Color @Composable get() = MaterialTheme.colorScheme.primary
-val SteamBlue: Color @Composable get() = MaterialTheme.colorScheme.secondary
+val SteamBlue: Color @Composable get() = MaterialTheme.colorScheme.primary
 val SteamAccent: Color @Composable get() = MaterialTheme.colorScheme.tertiary
 val SteamBackground: Color @Composable get() = MaterialTheme.colorScheme.background
 val SteamSurface: Color @Composable get() = MaterialTheme.colorScheme.surface

@@ -41,13 +41,14 @@ internal class StudyStore(private val file: File) {
             attempts = root.readObjects("attempts") {
                 Attempt(getString("id"), getString("quizId"), getString("title"), getLong("completedAt"),
                     QuizScore(getInt("correct"), getInt("incorrect"), getInt("skipped"), getInt("ungraded")),
-                    readObjects("mistakes") { Mistake(getString("question"), nullableText("given"), getString("correct"), nullableText("explanation")) })
+                    readObjects("mistakes") { Mistake(getString("question"), nullableText("given"), getString("correct"), nullableText("explanation")) },
+                    if(isNull("durationMillis"))null else getLong("durationMillis").also {require(it>=0)},optBoolean("examMode"))
             },
             settings = with(settings) {
                 StudySettings(optInt("limit"), optBoolean("shuffleQuestions"), optBoolean("shuffleOptions"),
                     optBoolean("showHints", true), optBoolean("showAnswers", true), optInt("minutes").coerceIn(0, QuizTimer.MAX_MINUTES),
                     optBoolean("dark"), ProductionConfig.SERVER, "",
-                    optString("theme", if (optBoolean("dark")) "dark" else "system"))
+                    optString("theme", if (optBoolean("dark")) "dark" else "system"),optBoolean("examMode"))
             }
         )
     }
@@ -63,6 +64,7 @@ internal class StudyStore(private val file: File) {
         })
         root.put("attempts", data.attempts.asJson {
             JSONObject().put("id", id).put("quizId", quizId).put("title", title).put("completedAt", completedAt)
+                .put("durationMillis",durationMillis ?: JSONObject.NULL).put("examMode",examMode)
                 .put("correct", score.correct).put("incorrect", score.incorrect).put("skipped", score.skipped).put("ungraded", score.ungraded)
                 .put("mistakes", mistakes.asJson {
                     JSONObject().put("question", question).put("given", given ?: JSONObject.NULL)
@@ -71,7 +73,7 @@ internal class StudyStore(private val file: File) {
         })
         root.put("settings", with(data.settings) {
             JSONObject().put("limit", limit).put("shuffleQuestions", shuffleQuestions).put("shuffleOptions", shuffleOptions)
-                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("theme", theme)
+                .put("showHints", showHints).put("showAnswers", showAnswers).put("minutes", minutes).put("dark", dark).put("theme", theme).put("examMode",examMode)
         })
         atomicWrite(file, root.toString())
     }

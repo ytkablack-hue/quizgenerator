@@ -20,7 +20,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
 
     suspend fun quiz(topic: String, material: String, difficulty: String, count: Int): Quiz {
         val result = request("quizzes", input(topic, material, difficulty, count))
-        val quiz = QuizJson.parse(result.toString())
+        val quiz = parsed {QuizJson.parse(result.toString())}
         require(quiz.generatedByAi && quiz.questions.size == count && quiz.questions.all {
             it.correctIndex != null && !it.explanation.isNullOrBlank()
         }) { "Сервер вернул неполный тест" }
@@ -28,11 +28,12 @@ internal class AiClient(private val settings: StudySettings, private val authTok
     }
 
     suspend fun cards(topic: String, material: String, difficulty: String, count: Int): List<Flashcard> {
-        val result = request("flashcards", input(topic, material, difficulty, count)).getJSONArray("cards")
+        val response=request("flashcards", input(topic, material, difficulty, count))
+        val result = parsed {response.getJSONArray("cards")}
         require(result.length() == count) { "Сервер вернул неполный набор карточек" }
         val cards = List(result.length()) {
             val item = result.getJSONObject(it)
-            Flashcard(UUID.randomUUID().toString(), item.getString("front").trim(), item.getString("back").trim(), true,evidence=AnswerEvidence.CLOUD_AI)
+            parsed {Flashcard(UUID.randomUUID().toString(), item.getString("front").trim(), item.getString("back").trim(), true,evidence=AnswerEvidence.CLOUD_AI)}
         }
         require(cards.all { it.front.isNotBlank() && it.back.isNotBlank() }) { "В наборе есть пустая карточка" }
         return cards
@@ -44,9 +45,10 @@ internal class AiClient(private val settings: StudySettings, private val authTok
 
     suspend fun reviewMaterial(material: String): AiReview {
         val result = request("review", JSONObject().put("material", material))
-        val steps = result.getJSONArray("nextSteps")
-        return AiReview(result.getString("summary"), List(steps.length(), steps::getString))
+        return parsed {val steps=result.getJSONArray("nextSteps");AiReview(result.getString("summary"),List(steps.length(),steps::getString))}
     }
+
+    private fun <T> parsed(block: ()->T): T = try {block()} catch(_: org.json.JSONException) {error("ИИ вернул некорректный формат ответа. Попробуйте позже") }
 
     private fun input(topic: String, material: String, difficulty: String, count: Int) =
         AiGeneration.input(topic,material,difficulty,count)
@@ -97,7 +99,7 @@ internal class AiClient(private val settings: StudySettings, private val authTok
                     else -> detail?.ifBlank { null } ?: "Сервер вернул ошибку $status"
                 })
             }
-            if(pending.isActive)pending.resumeWith(Result.success(JSONObject(data)))
+            if(pending.isActive)pending.resumeWith(Result.success(parsed {JSONObject(data)}))
         } catch(e: Exception) {if(pending.isActive)pending.resumeWith(Result.failure(e))} finally {
             connection.disconnect()
         }

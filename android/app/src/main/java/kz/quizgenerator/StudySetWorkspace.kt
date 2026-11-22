@@ -113,7 +113,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                         items(history.sortedByDescending {it.completedAt},key={it.id}) {attempt->StudyPanel {
                             Text(attempt.title,style=MaterialTheme.typography.titleMedium);Text(displayDate(attempt.completedAt))
                             Text("Правильно "+attempt.score.correct+" · Ошибок "+attempt.score.incorrect+" · Пропущено "+attempt.score.skipped)
-                            Text("Без оценки: "+attempt.score.ungraded)
+                            Text("Без оценки: "+attempt.score.ungraded);Text("Время: "+StudySessionPolicy.durationLabel(attempt.durationMillis))
                             attempt.mistakes.forEach {mistake->Text(mistake.question);Text("Ваш ответ: "+(mistake.given ?: "Пропущен"));Text("Ключ: "+mistake.correct)}
                         }}
                     }

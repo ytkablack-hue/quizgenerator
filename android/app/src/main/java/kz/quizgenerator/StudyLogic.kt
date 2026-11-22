@@ -14,7 +14,8 @@ internal data class StudySettings(
     val dark: Boolean = false,
     val server: String = ProductionConfig.SERVER,
     val accessToken: String = "",
-    val theme: String = if (dark) "dark" else "light"
+    val theme: String = if (dark) "dark" else "light",
+    val examMode: Boolean = false
 )
 
 internal data class Flashcard(
@@ -30,7 +31,9 @@ internal data class Attempt(
     val title: String,
     val completedAt: Long,
     val score: QuizScore,
-    val mistakes: List<Mistake>
+    val mistakes: List<Mistake>,
+    val durationMillis: Long? = null,
+    val examMode: Boolean = false
 )
 internal data class StudyData(
     val cards: List<Flashcard> = emptyList(),

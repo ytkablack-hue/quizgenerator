@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun StudySetHome(repository: QuizRepository,quizzes: List<Quiz>,study: StudyData,
-    onOpen: (String)->Unit,onCreate: ()->Unit,onProfile: ()->Unit,onExport: (StudySet)->Unit,onLegacy: ()->Unit) {
+    onOpen: (String)->Unit,onCreate: ()->Unit,onProfile: ()->Unit,onExport: (StudySet)->Unit,onLegacy: ()->Unit,onPreparation: ()->Unit) {
     var query by rememberSaveable {mutableStateOf("")};var revision by remember {mutableIntStateOf(0)}
     var trash by rememberSaveable {mutableStateOf(false)};var error by remember {mutableStateOf<String?>(null)}
     var rename by remember {mutableStateOf<StudySet?>(null)};var title by rememberSaveable {mutableStateOf("")}
@@ -55,6 +55,7 @@ import kotlinx.coroutines.*
         val today=java.time.LocalDate.now()
         val todayAttempts=study.attempts.filter {java.time.Instant.ofEpochMilli(it.completedAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()==today}
         if(todayAttempts.isNotEmpty())item {StudyPanel {SectionHeading("Сегодня",todayAttempts.size.toString()+" завершённых попыток · "+todayAttempts.sumOf {it.score.correct+it.score.incorrect+it.score.skipped+it.score.ungraded}+" вопросов")}}
+        item {OutlinedButton(onClick=onPreparation){StudyIcon(Glyph.PLAN);Spacer(Modifier.width(8.dp));Text("История и план экзаменов")}}
         item {SectionHeading("Мои учебные наборы",all.count {!it.archived}.toString()+" активных")}
         if(all.any {it.archived} || trash)item {TextButton(onClick={trash=!trash}) {Text(if(trash)"Вернуться к наборам" else "Корзина · "+all.count {it.archived})}}
         if(state==null)item {StudyLoading("Открываем библиотеку")}

@@ -128,7 +128,7 @@ internal fun PreparationScreen(data: StudyData, quizzes: List<Quiz>, onSave: (Li
                 SectionHeading(selectedAttempt.title, displayDate(selectedAttempt.completedAt))
             }
             item { StudyPanel(tone = PanelTone.LAVENDER) {
-                Text("Правильно: ${selectedAttempt.score.correct} из ${selectedAttempt.score.gradedTotal}")
+                Text("Правильно: ${selectedAttempt.score.correct} из ${selectedAttempt.score.gradedTotal}");Text("Время: "+StudySessionPolicy.durationLabel(selectedAttempt.durationMillis))
             } }
             if (selectedAttempt.mistakes.isEmpty()) item { StudyPanel { Text("Нет ошибок или пропусков.") } }
             items(selectedAttempt.mistakes) { mistake ->
@@ -249,6 +249,7 @@ internal fun StudyPreferences(settings: StudySettings, onSave: (StudySettings) -
             StudyField(limit, { limit = it.filter(Char::isDigit).take(4) }, "Число вопросов (0 — все)")
             Preference("Перемешивать вопросы", value.shuffleQuestions) { value = value.copy(shuffleQuestions = it) }
             Preference("Перемешивать варианты", value.shuffleOptions) { value = value.copy(shuffleOptions = it) }
+            Preference("Экзамен без подсказок",value.examMode){value=value.copy(examMode=it)}
             Preference("Показывать подсказки", value.showHints) { value = value.copy(showHints = it) }
             Preference("Показывать ключ после теста", value.showAnswers) { value = value.copy(showAnswers = it) }
             Text("Таймер по умолчанию")
