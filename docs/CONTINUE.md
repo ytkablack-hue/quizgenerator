@@ -1,6 +1,6 @@
 # TestHelper 0.7.0 Beta — контрольная точка
 
-Проект C:/Projects/quizgenerator, ветка feature/android-mvp. База 0.6.0 b599fb1. Этапы: ec8582b (три режима AI), 3d8b0d1 (Stitch shell), 52bbeae (режимы/закладки/время/карточки), текущий коммит — финальная маршрутизация, cloud provenance и versionCode9.
+Проект C:/Projects/quizgenerator, ветка feature/android-mvp. База 0.6.0 b599fb1. Этапы: ec8582b (три режима AI), 3d8b0d1 (Stitch shell), 52bbeae (режимы/закладки/время/карточки), a50d88a3f88b0613df9c5edac2730360c5ee24a3 — финальные исходники APK (маршрутизация, cloud provenance и versionCode9). Следующий коммит содержит только итоговую документацию.
 
 Внедрены нативные экраны Stitch7–13. AiGeneration/AiInputMode отделены от UI, TOPIC не включает документ. Черновик хранит режим/свой текст независимо от sourceId; явный выбор документа учитывается до окончания асинхронного bind. Экзамен не раскрывает ключи/подсказки, сохраняет режим/закладки/таймер/время; старые попытки мигрируют без выдуманной длительности. Есть переход/повтор закладок, трудные карточки и карточки из подтверждённых ошибок. Генерация всегда CLOUD_AI независимо от присланной evidence.
 
@@ -8,7 +8,7 @@
 APK: C:/Projects/quizgenerator/android/app/build/outputs/apk/debug/app-debug.apk
 Размер51214575байт; SHA25640f6ed4b871b3bfc5be99f33ea9c4f1f709e4e36af3b89301676abd64920ad40.
 
-Далее только итоговый отчёт/точный SHA исходников и обычный push, затем телефонный checklist docs/REMAINING.md. Отчёт проверки: docs/testhelper-0.7.0-verification.md (будет добавлен следующим коммитом). План AI: docs/ai-next-stage.md; карта Stitch: docs/stitch-0.7.0.md. Не продолжать разработку с нуля/не запускать сборку неизменённых исходников.
+Далее — телефонный checklist docs/REMAINING.md. Разработка и автоматические проверки0.7 завершены, исходники отправлены в GitHub. Отчёт проверки: docs/testhelper-0.7.0-verification.md. План AI: docs/ai-next-stage.md; карта Stitch: docs/stitch-0.7.0.md. Не продолжать разработку с нуля/не запускать сборку неизменённых исходников.
 
 После новых изменений:
 ```powershell
