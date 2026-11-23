@@ -101,21 +101,22 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
     }
     if(viewer && record!=null && model.text.isNotEmpty())MaterialViewer(record,model.text,draft.previewPage,
         {model.update(model.draft.copy(previewPage=it))},{viewer=false},sourceFile=repository.materials.source(record.id))
+    var chooseDocument by rememberSaveable {mutableStateOf(false)}
     StudyColumn("Учиться с ИИ",onBack) {
-        StudyPanel(tone=PanelTone.SKY){Text("Источник и метод подготовки",style=MaterialTheme.typography.titleMedium);Text("Файлы обрабатываются локально. Только после подтверждения выбранный текст передаётся через Cloudflare в Gemini.",style=MaterialTheme.typography.bodySmall)}
+        StudyPanel(tone=PanelTone.SKY){Text("Материал для подготовки",style=MaterialTheme.typography.titleMedium);Text("Материал хранится на устройстве. Выбранный текст отправляется в Gemini только с вашего согласия.",style=MaterialTheme.typography.bodySmall)}
         if(auth.account?.verified!=true)TextButton(onClick=onAccount) {Text("Подтвердить почту для Gemini")}
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {AiTask.entries.forEach {task -> FilterChip(mode==task,{mode=task;model.update(draft.copy(part=0))},label={Text(task.title)},enabled=!busy)}}
+        StitchTabs(AiTask.entries.map {it.title},mode.ordinal,{if(!busy){mode=AiTask.entries[it];model.update(draft.copy(part=0))}})
         if(mode!=AiTask.REVIEW) {
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {AiInputMode.entries.forEach {input->FilterChip(draft.inputMode==input,{model.update(draft.copy(inputMode=input,part=0));failure=null},label={Text(input.title)},enabled=!busy && model.progress==null)}}
+            StitchTabs(AiInputMode.entries.map {it.title},draft.inputMode.ordinal,{if(!busy && model.progress==null){model.update(draft.copy(inputMode=AiInputMode.entries[it],part=0));failure=null}})
             if(draft.inputMode==AiInputMode.DOCUMENT) {
-            OutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
+            StitchOutlinedButton(enabled=model.ready && model.progress==null && !busy,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))}) {Text("Добавить документ или фото")}
             if(visibleRecords.isEmpty())StudyPanel {Text("Прикрепите материал. Его полный текст будет сохранён отдельно от поля ниже.")}
-            visibleRecords.take(documentLimit).forEach {item ->FileAttachmentCard(item,item.id==draft.sourceId,
-                onChoose={model.select(item.id)},onOpen={if(item.id!=draft.sourceId)model.select(item.id);viewer=true},
+            visibleRecords.filter {chooseDocument || draft.sourceId==null || it.id==draft.sourceId}.take(documentLimit).forEach {item ->FileAttachmentCard(item,item.id==draft.sourceId,
+                onChoose={model.select(item.id);chooseDocument=false},onOpen={if(item.id!=draft.sourceId)model.select(item.id);viewer=true},
                 onRecognize={if(!busy)job=scope.launch {try {saveQuiz(withContext(Dispatchers.IO){repository.questionsFromMaterial(item.id).quiz})}catch(e: CancellationException){throw e}catch(e: Exception){failure=e.message ?: "Готовые вопросы не найдены"}finally{job=null}}},
                 onDetach={if(!busy){model.select(null);notice="Выбор снят. Полный документ остаётся в библиотеке"}},detachLabel="Снять выбор")}
             if(visibleRecords.size>documentLimit)TextButton(onClick={documentLimit=(documentLimit+20).coerceAtMost(visibleRecords.size)}) {Text("Показать ещё · всего "+visibleRecords.size)}
-            if(draft.sourceId!=null)TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Снять выбор документа")}
+            if(draft.sourceId!=null)Row {TextButton(enabled=!busy,onClick={chooseDocument=!chooseDocument}){Text(if(chooseDocument)"Скрыть список" else "Выбрать другой материал")};TextButton(enabled=!busy,onClick={model.select(null)}) {Text("Снять выбор")}}
             }
             if(draft.inputMode==AiInputMode.TOPIC)Text("Отправится только тема. Прикреплённые документы и собственный текст не передаются.")
             if(draft.inputMode==AiInputMode.TEXT) {
@@ -145,7 +146,7 @@ private data class GenerationRequest(val task: AiTask,val topic: String,val mate
         if(model.pendingCards.isNotEmpty() && mode==AiTask.CARDS) {
             Text("Карточек создано: "+model.pendingCards.size+" · ответы ИИ требуют проверки")
             model.pendingCards.forEach {card->StudyPanel {Text(card.front);Text(card.back)}}
-            Button(onClick={if(saveCards(model.pendingCards)){model.pendingCards=emptyList();notice="Карточки сохранены"}}) {Text("Сохранить карточки")}
+            StitchButton(onClick={if(saveCards(model.pendingCards)){model.pendingCards=emptyList();notice="Карточки сохранены"}}) {Text("Сохранить карточки")}
         }
         review?.let {Text(it.summary);it.steps.forEach {step->Text("• "+step)}}
         model.progress?.let {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}

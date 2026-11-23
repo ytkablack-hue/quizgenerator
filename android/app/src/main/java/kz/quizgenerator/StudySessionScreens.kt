@@ -37,7 +37,7 @@ import kotlin.math.roundToInt
         item {SectionHeading("Количество вопросов");StudyPanel {
             FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {(listOf(10,20,30).filter {it<quiz.questions.size}+quiz.questions.size).distinct().forEach {n->FilterChip(count.toIntOrNull()==n,{count=n.toString()},label={Text(if(n==quiz.questions.size)"Все ($n)" else n.toString())})}}
             OutlinedTextField(count,{count=it.filter(Char::isDigit).take(4)},label={Text("От 1 до "+quiz.questions.size)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Number))
-            Text("Сложность задана исходным банком. Генерация по теме, тексту и документу настраивается отдельно (Gemini: до 25).",style=MaterialTheme.typography.bodySmall)
+            Text("Вопросы берутся из выбранного банка без изменения содержания.",style=MaterialTheme.typography.bodySmall)
         }}
         item {SectionHeading("Режим прохождения");FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             FilterChip(!value.examMode,{value=value.copy(examMode=false)},label={Text("Обучение")})
@@ -55,9 +55,9 @@ import kotlin.math.roundToInt
         if(unverified>0)item {Text("Без подтверждённого ключа: $unverified. Эти вопросы не входят в строгую оценку.")}
         error?.let {item {StudyError(it)}}
 
-        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick=onEdit){Text("Редактировать банк")};OutlinedButton(onClick=onCards){Text("Создать карточки")}}}
+        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){StitchOutlinedButton(onClick=onEdit){Text("Редактировать банк")};StitchOutlinedButton(onClick=onCards){Text("Создать карточки")}}}
     }
-    StudyPrimary("Начать тестирование",enabled=count.toIntOrNull() in 1..quiz.questions.size) {
+    StudyPrimary("Начать тестирование (${count.toIntOrNull() ?: 0}) →",enabled=count.toIntOrNull() in 1..quiz.questions.size) {
         val n=count.toIntOrNull() ?: return@StudyPrimary
         if(!onStart(value.copy(limit=if(n==quiz.questions.size)0 else n)))error="Не удалось сохранить настройки. Попробуйте снова"
     }
@@ -76,11 +76,10 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
     val last = index == quiz.questions.lastIndex
     var feedback by rememberSaveable(question.id,answer.toString()) {mutableStateOf(false)}
     val controls = @Composable {
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(enabled = index > 0, onClick = onPrevious) { Text("← Назад") }
-            Button(onClick = if (last) onFinish else onNext) { Text(if (last) "Завершить тест" else "Далее") }
-            if (!last && answer.isEmpty()) TextButton(onClick=onNext){Text("Пропустить")}
-            TextButton(onClick = onFinish) { Text("Завершить") }
+        Row(Modifier.fillMaxWidth().padding(top=8.dp,bottom=4.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+            StitchOutlinedButton(enabled=index>0,onClick=onPrevious,modifier=Modifier.weight(1f)){Text("← Назад")}
+            if(!last)TextButton(enabled=answer.isEmpty(),onClick=onNext,modifier=Modifier.weight(1f).heightIn(min=48.dp)){Text("Пропустить")}
+            StitchButton(onClick=if(last)onFinish else onNext,modifier=Modifier.weight(1f)){Text(if(last)"Завершить" else "Далее →")}
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -90,22 +89,24 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     item {
-                        Row(verticalAlignment=Alignment.CenterVertically) {Text(if(examMode)"Экзамен" else "Обучение",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
-                            IconToggleButton(checked=bookmarked,onCheckedChange={onBookmark()},modifier=Modifier.semantics {contentDescription=if(bookmarked)"Убрать закладку" else "Отметить сложный вопрос"}) {StudyIcon(Glyph.BOOKMARK)}}
-                        Text(quiz.title,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(enabled=markedCount>0,onClick=onNextBookmark){Text("К закладкам ($markedCount)")}
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Вопрос ${index + 1} из ${quiz.questions.size}")
-                            seconds?.let { Text(String.format(Locale.ROOT, "%02d:%02d", it / 60, it % 60),
-                                color = if (QuizTimer.warning(it)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+                            TextButton(onClick=onFinish){Text("Завершить")}
+                            StitchPill(seconds?.let {String.format(Locale.ROOT,"%02d:%02d",it/60,it%60)} ?: if(examMode)"Экзамен" else "Обучение")
+                            IconToggleButton(checked=bookmarked,onCheckedChange={onBookmark()},modifier=Modifier.semantics {contentDescription=if(bookmarked)"Убрать закладку" else "Отметить сложный вопрос"}){StudyIcon(Glyph.BOOKMARK)}
                         }
-                        if (seconds != null && QuizTimer.warning(seconds)) Text("Осталось меньше минуты. Ответы сохранятся автоматически",
-                            color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                        Spacer(Modifier.height(8.dp))
-                        LinearProgressIndicator(progress = { (index + 1f) / quiz.questions.size }, modifier = Modifier.fillMaxWidth())
+                        StudyPanel {
+                            Text("Вопрос ${index+1} из ${quiz.questions.size}",style=MaterialTheme.typography.titleLarge)
+                            LinearProgressIndicator(progress={(index+1f)/quiz.questions.size},modifier=Modifier.fillMaxWidth().height(6.dp))
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+                                TextButton(enabled=markedCount>0,onClick=onNextBookmark){Text("На повтор: $markedCount")}
+                                Text("Осталось ${quiz.questions.size-index-1}",style=MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        if(seconds!=null && QuizTimer.warning(seconds))Text("Осталось меньше минуты. Ответы сохраняются",color=MaterialTheme.colorScheme.error,modifier=Modifier.semantics {liveRegion=LiveRegionMode.Polite})
                     }
                     item {
                         StudyPanel {
+                            Text(quiz.title,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
                             Text(question.text, style = MaterialTheme.typography.headlineSmall)
                             if(question.isMultiAnswer)Text("Выберите все правильные варианты")
                         }
@@ -123,12 +124,13 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
                                     shape = MaterialTheme.shapes.medium,
                                     border = BorderStroke(if(selected)2.dp else 1.dp, if (selected) colors.primary else colors.outlineVariant)
                                 ) {
-                                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    Row(Modifier.heightIn(min=56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Surface(shape=androidx.compose.foundation.shape.CircleShape,color=if(selected)colors.primary else colors.primaryContainer,contentColor=if(selected)colors.onPrimary else colors.onPrimaryContainer) {
-                                            Box(Modifier.size(36.dp),contentAlignment=Alignment.Center){Text(if(selected)"✓" else if(option<6)('А'.code+option).toChar().toString() else (option+1).toString(),style=MaterialTheme.typography.titleMedium)}
+                                            Box(Modifier.size(36.dp),contentAlignment=Alignment.Center){Text(if(option<5)listOf("А","Б","В","Г","Д")[option] else (option+1).toString(),style=MaterialTheme.typography.titleMedium)}
                                         }
-                                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                                        Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge,fontWeight=if(selected)androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium)
+                                        if(selected)Surface(shape=androidx.compose.foundation.shape.CircleShape,color=colors.secondaryContainer,border=BorderStroke(1.dp,colors.primary)){Box(Modifier.size(22.dp),contentAlignment=Alignment.Center){Text("✓",color=colors.primary,style=MaterialTheme.typography.labelSmall)}}
                                     }
                                 }
                             }
@@ -143,7 +145,7 @@ internal fun RunScreen(quiz: Quiz, index: Int, answer: Set<Int>, seconds: Int?, 
                         }
                     }
                     if(StudySessionPolicy.feedback(examMode,question))item {
-                        OutlinedButton(enabled=answer.isNotEmpty(),onClick={feedback=true}){Text("Проверить выбранный ответ")}
+                        StitchOutlinedButton(enabled=answer.isNotEmpty(),onClick={feedback=true}){Text("Проверить выбранный ответ")}
                         if(feedback)StudyPanel(tone=PanelTone.SKY){Text(if(answer==question.correctIndices.toSet())"Верно" else "Нужно повторить");Text("Ключ: "+question.correctIndices.joinToString {question.options[it]});question.explanation?.let {Text(it)}}
                     }
                     if (compact) item { controls() }
@@ -164,25 +166,26 @@ internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,s
     val results=quiz.questions.indices.filter {i->!errorsOnly || StudyResultRules.outcome(quiz.questions[i],answers[i]) in setOf(QuestionOutcome.INCORRECT,QuestionOutcome.SKIPPED)}
     ScreenList {
         item {SectionHeading("Результат",quiz.title)}
-        item {StudyPanel(tone=PanelTone.SKY) {
-            Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {Box(Modifier.size(144.dp),contentAlignment=Alignment.Center) {
-                CircularProgressIndicator(progress={(percent ?: 0)/100f},modifier=Modifier.fillMaxSize(),strokeWidth=10.dp)
-                Column(horizontalAlignment=Alignment.CenterHorizontally){Text(percent?.let {"$it%"} ?: "—",style=MaterialTheme.typography.headlineLarge);Text("по ключам",style=MaterialTheme.typography.bodySmall)}
+        item {StudyPanel {
+            Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {Box(Modifier.size(132.dp),contentAlignment=Alignment.Center) {
+                CircularProgressIndicator(progress={(percent ?: 0)/100f},modifier=Modifier.fillMaxSize(),strokeWidth=12.dp,trackColor=MaterialTheme.colorScheme.primaryContainer)
+                Column(horizontalAlignment=Alignment.CenterHorizontally){Text(percent?.let {"$it%"} ?: "—",style=MaterialTheme.typography.displayLarge);Text("по ключам",style=MaterialTheme.typography.labelSmall)}
             }}
-            Text("Время: "+StudySessionPolicy.durationLabel(durationMillis))
-            if(percent==null)Text("Нет вопросов с подтверждённым ключом")
-            Text("Верно: "+score.correct+" · Ошибок: "+score.incorrect+" · Пропущено: "+score.skipped)
-            Text("Без подтверждённого ключа: "+score.ungraded)
-            percent?.let {LinearProgressIndicator(progress={it/100f},modifier=Modifier.fillMaxWidth())}
-            if(expired)Text("Время вышло. Тест завершён автоматически, ответы сохранены.")
+            Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){StitchPill(if(percent==null)"Нет подтверждённых ключей" else "Результат сохранён")}
+            Text(quiz.title,style=MaterialTheme.typography.bodyMedium)
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                StitchMetric("Верно",score.correct.toString(),Modifier.weight(1f));StitchMetric("Ошибки",score.incorrect.toString(),Modifier.weight(1f));StitchMetric("Время",StudySessionPolicy.durationLabel(durationMillis),Modifier.weight(1f))
+            }
+            if(score.skipped>0 || score.ungraded>0)Text("Пропущено: ${score.skipped} · Без ключа: ${score.ungraded}",style=MaterialTheme.typography.bodySmall)
+            if(expired)Text("Время вышло. Ответы сохранены.")
         }}
-        item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Button(onClick=repeat){Text("Повторить тест")}
-            if(repeatMistakes!=null && score.incorrect+score.skipped>0)OutlinedButton(onClick=repeatMistakes){Text("Повторить ошибки ("+(score.incorrect+score.skipped)+")")}
-            if(onCardsFromMistakes!=null && score.incorrect+score.skipped>0)OutlinedButton(onClick=onCardsFromMistakes){Text("Карточки из ошибок")}
-            repeatBookmarks?.let {OutlinedButton(onClick=it){Text("Повторить закладки")}}
-            TextButton(onClick=library){Text("Вернуться к материалам")}
+        if(repeatMistakes!=null && score.incorrect+score.skipped>0)item {StudyPrimary("Повторить ошибки (${score.incorrect+score.skipped}) →",onClick=repeatMistakes)}
+        item {Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            StitchOutlinedButton(onClick=repeat,modifier=Modifier.weight(1f)){Text("Пройти заново")}
+            if(onCardsFromMistakes!=null && score.incorrect+score.skipped>0)StitchOutlinedButton(onClick=onCardsFromMistakes,modifier=Modifier.weight(1f)){Text("Создать карточки")}
         }}
+        repeatBookmarks?.let {item {TextButton(onClick=it){Text("Повторить закладки")}}}
+        item {TextButton(onClick=library){Text("← К материалам")}}
         item {FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {FilterChip(!errorsOnly,{errorsOnly=false},label={Text("Все вопросы")});FilterChip(errorsOnly,{errorsOnly=true},label={Text("Ошибки и пропуски")})}}
         if(results.isEmpty())item {StudyPanel {Text("Среди оцениваемых вопросов нет ошибок и пропусков.")}}
         items(results,key={quiz.questions[it].id}) {index->
@@ -194,7 +197,7 @@ internal fun ResultsScreen(quiz: Quiz,answers: List<Set<Int>>,expired: Boolean,s
                 if(showAnswers && q.correctIndices.isNotEmpty()) {
                     Surface(color=if(q.evidence.confirmed)MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,contentColor=if(q.evidence.confirmed)MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,shape=MaterialTheme.shapes.small){Text((if(q.evidence.confirmed)"Подтверждённый ключ: " else "Предположение, не ключ: ")+q.correctIndices.joinToString {q.options[it]},Modifier.fillMaxWidth().padding(12.dp))}
                     Text(q.evidence.label)
-                    q.explanation?.let {Text(it)}
+                    q.explanation?.let {StudyPanel(tone=PanelTone.LAVENDER){Text("Объяснение",style=MaterialTheme.typography.labelLarge);Text(it,style=MaterialTheme.typography.bodyMedium)}}
                 }
             }
         }

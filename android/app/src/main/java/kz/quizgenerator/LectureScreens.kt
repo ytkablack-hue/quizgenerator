@@ -21,6 +21,7 @@ import java.util.UUID
     val loaded by produceState<Result<Lecture>?>(null,id,revision){value=withContext(Dispatchers.IO){runCatching {store.load(id)}}}
     var editing by rememberSaveable(id){mutableStateOf(false)}
     var title by rememberSaveable(id){mutableStateOf("")};var body by remember(id){mutableStateOf("")}
+    var actions by remember {mutableStateOf(false)}
     var deleting by remember {mutableStateOf(false)};var discard by remember {mutableStateOf(false)}
     var busy by remember {mutableStateOf(false)};var error by remember {mutableStateOf<String?>(null)};val scope=rememberCoroutineScope()
     fun back(){if(editing)discard=true else onBack()}
@@ -42,7 +43,7 @@ import java.util.UUID
                 OutlinedTextField(title,{if(it.length<=160)title=it},label={Text("Название")},modifier=Modifier.fillMaxWidth())
                 Text("Заголовки сохраняются с #, списки с -. Формулы — обычным текстом.",fontSize=13.sp)
                 OutlinedTextField(body,{if(it.length<=8_000_000)body=it else error="Лекция слишком длинная"},modifier=Modifier.weight(1f).fillMaxWidth(),label={Text("Содержимое лекции")})
-                Button(enabled=!busy && title.isNotBlank() && body.isNotBlank(),onClick={busy=true;scope.launch {try {withContext(Dispatchers.IO){store.save(lecture.copy(title=title.trim(),body=body,edited=true))};editing=false;revision++}catch(_: Exception){error="Не удалось сохранить правки. Оригинал не перезаписан"}finally{busy=false}}}){Text("Сохранить лекцию")}
+                StitchButton(enabled=!busy && title.isNotBlank() && body.isNotBlank(),onClick={busy=true;scope.launch {try {withContext(Dispatchers.IO){store.save(lecture.copy(title=title.trim(),body=body,edited=true))};editing=false;revision++}catch(_: Exception){error="Не удалось сохранить правки. Оригинал не перезаписан"}finally{busy=false}}}){Text("Сохранить лекцию")}
             } else {
                 Text(lecture.title,style=MaterialTheme.typography.titleLarge)
                 Text(if(lecture.complete)"Сохранена для офлайн-чтения" else "Частичный материал — генерация ещё не завершена",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -51,10 +52,16 @@ import java.util.UUID
                     source?.getOrNull()?.let {(record,_)->TextButton(onClick={sourceOpen=true}){Text("Источник: "+record.name)}}
                     source?.exceptionOrNull()?.let {StudyError("Исходный документ недоступен. Сохранённая лекция остаётся на устройстве")}
                 }
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick={title=lecture.title;body=lecture.body;editing=true}){Text("Редактировать / переименовать")}
-                    TextButton(onClick={deleting=true}){Text("Удалить")}
-                    if(onAi!=null){TextButton(onClick={onAi(lecture,"quizzes")}){Text("Создать тест")};TextButton(onClick={onAi(lecture,"cards")}){Text("Создать карточки")}}
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    StitchOutlinedButton(onClick={title=lecture.title;body=lecture.body;editing=true}){Text("Редактировать")}
+                    Box {
+                        TextButton(onClick={actions=true}){Text("Действия ⋮")}
+                        DropdownMenu(actions,{actions=false}) {
+                            if(onAi!=null){DropdownMenuItem(text={Text("Создать тест")},onClick={actions=false;onAi(lecture,"quizzes")});DropdownMenuItem(text={Text("Создать карточки")},onClick={actions=false;onAi(lecture,"cards")})}
+                            DropdownMenuItem(text={Text("Переименовать")},onClick={actions=false;title=lecture.title;body=lecture.body;editing=true})
+                            DropdownMenuItem(text={Text("Удалить лекцию")},onClick={actions=false;deleting=true})
+                        }
+                    }
                 }
                 LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=20.dp)) {
                     items(lecture.body.lineSequence().toList()){line->

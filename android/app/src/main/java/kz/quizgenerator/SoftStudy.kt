@@ -80,6 +80,7 @@ internal enum class PanelTone { PLAIN, LAVENDER, SKY }
 internal fun StudyPanel(modifier: Modifier = Modifier, tone: PanelTone = PanelTone.PLAIN,
                         onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val click = if (onClick == null) modifier else modifier.clickable(onClick = onClick)
+    if(LocalStitch.current){StitchCard(click,when(tone){PanelTone.SKY->MaterialTheme.colorScheme.secondaryContainer;PanelTone.LAVENDER->MaterialTheme.colorScheme.primaryContainer;else->MaterialTheme.colorScheme.surface},content);return}
     kz.quizgenerator.ui.components.SteamCard(click,when(tone){PanelTone.SKY->MaterialTheme.colorScheme.secondaryContainer;PanelTone.LAVENDER->MaterialTheme.colorScheme.primaryContainer;else->MaterialTheme.colorScheme.surface}) { content() }
 }
 
@@ -118,24 +119,30 @@ internal fun StudyConfirmation(title: String, description: String, confirm: Stri
 
 
 @Composable internal fun StudyPrimary(text: String,enabled: Boolean=true,onClick: ()->Unit) {
-    kz.quizgenerator.ui.components.SteamButton(text,enabled=enabled,modifier=Modifier.heightIn(min=52.dp),onClick=onClick)
+    if(LocalStitch.current)StitchButton(onClick,Modifier.fillMaxWidth(),enabled){Text(text)} else kz.quizgenerator.ui.components.SteamButton(text,enabled=enabled,modifier=Modifier.heightIn(min=52.dp),onClick=onClick)
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun FileAttachmentCard(record: MaterialRecord,selected: Boolean=false,onOpen: ()->Unit,
     onRecognize: ()->Unit,onChoose: ()->Unit,onDetach: ()->Unit,detachLabel: String="Открепить") {
     var menu by androidx.compose.runtime.remember {androidx.compose.runtime.mutableStateOf(false)}
-    StudyPanel(tone=if(selected)PanelTone.SKY else PanelTone.PLAIN) {
+    StudyPanel(onClick=onOpen) {
         Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-            Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.small) {Column(Modifier.padding(12.dp),horizontalAlignment=Alignment.CenterHorizontally){StudyIcon(Glyph.FILE);Text(record.name.substringAfterLast('.',record.format).uppercase().take(5),style=MaterialTheme.typography.labelSmall)}}
-            Column(Modifier.weight(1f)) {Text(record.name,style=MaterialTheme.typography.titleMedium);Text(fileSizeLabel(record.bytes),style=MaterialTheme.typography.bodySmall);Text("Обработан локально · "+record.characters+" символов",style=MaterialTheme.typography.bodySmall)}
+            Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=MaterialTheme.shapes.small) {Column(Modifier.sizeIn(minWidth=44.dp,minHeight=48.dp).padding(8.dp),horizontalAlignment=Alignment.CenterHorizontally){StudyIcon(Glyph.FILE);Text(record.name.substringAfterLast('.',record.format).uppercase().take(5),style=MaterialTheme.typography.labelSmall)}}
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                Text(record.name,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(fileSizeLabel(record.bytes)+" · На устройстве",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(selected)Text("Выбран для подготовки",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
+            }
             Box {IconButton(onClick={menu=true},modifier=Modifier.semantics {contentDescription="Действия файла "+record.name}){Text("⋮")}
-                DropdownMenu(menu,{menu=false}) {DropdownMenuItem(text={Text("Открыть")},onClick={menu=false;onOpen()});DropdownMenuItem(text={Text(detachLabel)},onClick={menu=false;onDetach()})}}
+                DropdownMenu(menu,{menu=false}) {
+                    DropdownMenuItem(text={Text("Открыть материал")},onClick={menu=false;onOpen()})
+                    DropdownMenuItem(text={Text("Распознать готовые вопросы")},onClick={menu=false;onRecognize()})
+                    DropdownMenuItem(text={Text(if(selected)"Выбран для ИИ" else "Выбрать для ИИ")},onClick={menu=false;onChoose()})
+                    DropdownMenuItem(text={Text(detachLabel)},onClick={menu=false;onDetach()})
+                }
+            }
         }
         if(record.notice.isNotBlank())Text(record.notice,style=MaterialTheme.typography.bodySmall)
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick=onOpen){Text("Просмотр")};TextButton(onClick=onRecognize){Text("Распознать готовые вопросы")}
-            TextButton(onClick=onChoose){Text(if(selected)"Выбран для ИИ" else "Выбрать для ИИ")}
-        }
     }
 }
 internal fun fileSizeLabel(bytes: Long): String = when {

@@ -60,23 +60,34 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
     Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             TextButton(onClick=::back,modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)){Text("‹")}
-            Text(set?.title ?: "Учебный набор",Modifier.weight(1f).horizontalScroll(rememberScrollState()),style=MaterialTheme.typography.titleLarge)
-            if(set!=null)TextButton(onClick={onExport(set)}){Text("ZIP")}
+            Text(set?.title ?: "Учебный набор",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge,maxLines=2)
+            if(set!=null)TextButton(onClick={onExport(set)}){Text("Экспорт")}
         }
         if(state==null)StudyLoading("Открываем набор")
         state?.exceptionOrNull()?.let {StudyError(it.message ?: "Не удалось открыть набор");TextButton(onClick={revision++}){Text("Повторить")}}
         if(set!=null) {
             val banks=quizzes.filter {it.id in set.quizIds};val cards=WorkspaceIndex.cards(set,study);val history=WorkspaceIndex.attempts(set,study)
-            StudyPanel {Text(set.title,style=MaterialTheme.typography.headlineSmall);Text(set.materialIds.size.toString()+" материалов · "+banks.sumOf {it.questions.size}+" вопросов · "+cards.size+" карточек",style=MaterialTheme.typography.bodySmall)}
-            ScrollableTabRow(selectedTabIndex=tab.ordinal,edgePadding=0.dp) {SetTab.entries.forEach {item->Tab(tab==item,{tab=item},text={Text(item.title)})}}
-            if(tab==SetTab.MATERIAL)FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={if(banks.isNotEmpty())onQuiz(banks.first()) else onAi("quizzes")}){Text("Быстрый тест")};OutlinedButton(onClick={tab=SetTab.CARDS}){Text("Учить карточки")}}
+            StudyPanel {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){StitchPill("УЧЕБНЫЙ НАБОР");StitchPill("На устройстве")}
+                Text(set.title,style=MaterialTheme.typography.headlineMedium)
+                Text(banks.sumOf {it.questions.size}.toString()+" вопросов · "+cards.size+" карточек · "+set.materialIds.size+" материалов",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            StitchTabs(SetTab.entries.map {it.title},tab.ordinal,{tab=SetTab.entries[it]})
+            if(tab==SetTab.MATERIAL)Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                StitchButton(onClick={if(banks.isNotEmpty())onQuiz(banks.first()) else onAi("quizzes")},modifier=Modifier.weight(1f)){Text("Быстрый тест")}
+                StitchOutlinedButton(onClick={tab=SetTab.CARDS},modifier=Modifier.weight(1f)){Text("Учить карточки")}
+            }
             error?.let {StudyError(it)}
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when(tab) {
                     SetTab.MATERIAL -> ScreenList {
+                        if(history.any {it.mistakes.isNotEmpty()})item {StudyPanel(tone=PanelTone.SKY) {
+                            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){StudyIcon(Glyph.AI);Column(Modifier.weight(1f)){Text("Повторение по результатам",style=MaterialTheme.typography.titleMedium);Text("Вернитесь к вопросам, которые вызвали затруднения",style=MaterialTheme.typography.bodySmall)}}
+                            TextButton(onClick={tab=SetTab.PREPARE}){Text("Открыть разбор →")}
+                        }}
                         item {FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            Button(onClick={workKind=BatchKind.LECTURE;answerBankId=null;workflows=true}){Text("Создать лекцию с ИИ")}
-                            OutlinedButton(onClick={workKind=null;answerBankId=null;workflows=true}){Text("Задания и результаты")}
+                            StitchButton(onClick={workKind=BatchKind.LECTURE;answerBankId=null;workflows=true}){Text("Создать лекцию с ИИ")}
+                            StitchOutlinedButton(onClick={workKind=null;answerBankId=null;workflows=true}){Text("Задания и результаты")}
                         }}
                         item {Text("Учебные лекции",style=MaterialTheme.typography.titleMedium)}
                         lectureRecords?.exceptionOrNull()?.let {item {StudyError("Не удалось прочитать лекции. Файлы сохранены")}}
@@ -85,8 +96,8 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                             TextButton(onClick={lectureId=lecture.id}){Text("Открыть")}
                         }}
                         item {TextButton(onClick={scope.launch {try {val lecture=localLecture(id);withContext(Dispatchers.IO){lectureStore.save(lecture)};lectureId=lecture.id;revision++}catch(_: Exception){error="Не удалось создать локальную лекцию"}}}){Text("Создать лекцию вручную")}}
-                        item {Text("Прикреплённые документы",style=MaterialTheme.typography.titleMedium)}
-                        item {Button(enabled=model.ready && model.progress==null,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Text("Добавить документ или фото")}}
+                        item {Text("Прикреплённые материалы · "+set.materialIds.size,style=MaterialTheme.typography.titleMedium)}
+                        item {StitchButton(enabled=model.ready && model.progress==null,onClick={picker.launch(arrayOf("text/plain","application/pdf","application/json","image/jpeg","image/png","application/vnd.openxmlformats-officedocument.wordprocessingml.document"))},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) {Text("Добавить документ или фото")}}
                         model.progress?.let {item {StudyLoading(it.phase+": "+it.document.name,it.fraction,model::cancel)}}
                         model.error?.let {item {StudyError(it)}}
                         if(set.materialIds.isEmpty())item {StudyPanel(tone=PanelTone.SKY) {StudyIcon(Glyph.FILE);Text("Здесь будет исходный материал");Text("Сохраните полный документ локально. Готовые вопросы можно открыть без Gemini.")}}
@@ -95,11 +106,11 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                             onRecognize={scope.launch {try {val quiz=withContext(Dispatchers.IO){repository.questionsFromMaterial(record.id).quiz};onImportQuiz(quiz)}catch(e: CancellationException){throw e}catch(e: Exception){error=e.message ?: "Готовые вопросы не найдены"}}},
                             onChoose={model.update(model.draft.copy(inputMode=AiInputMode.DOCUMENT));model.select(record.id);onAi("quizzes")},
                             onDetach={scope.launch {try {withContext(Dispatchers.IO){repository.sets.update(id){it.copy(materialIds=it.materialIds-record.id)}};revision++}catch(e: CancellationException){throw e}catch(_: Exception){error="Не удалось открепить документ"}}})}
-                        item {Text("Открепление не удаляет оригинал: материал остаётся в локальной библиотеке.",style=MaterialTheme.typography.bodySmall)}
+
                         item {SectionHeading("Моя заметка",if(dirty)"Есть несохранённые изменения" else "Только на этом устройстве")}
                         item {OutlinedTextField(notes,{if(it.length<=20000)notes=it else error="Заметка длиннее20000символов"},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=8,label={Text("Заметка по материалу")})}
-                        item {Button(enabled=dirty && !saving,onClick={saveNotes()}){Text("Сохранить заметку")}}
-                        item {OutlinedButton(onClick=onOwnText){Text("Добавить вопросы из собственного текста")}}
+                        item {StitchButton(enabled=dirty && !saving,onClick={saveNotes()}){Text("Сохранить заметку")}}
+                        item {StitchOutlinedButton(onClick=onOwnText){Text("Добавить вопросы из собственного текста")}}
                     }
                     SetTab.TEST -> ScreenList {
                         item {SectionHeading("Выберите способ подготовки","Существующие вопросы открываются локально; облако — только по отдельному подтверждению")}
@@ -113,7 +124,7 @@ private enum class SetTab(val title: String) {MATERIAL("Материал"),TEST(
                             Text(bank.title,style=MaterialTheme.typography.titleMedium);Text(bank.questions.size.toString()+" вопросов")
                             val unverified=bank.questions.count {!it.evidence.confirmed || it.correctIndices.isEmpty()}
                             if(unverified>0)Text("Без подтверждённого ключа: "+unverified+". Они не участвуют в строгой оценке.")
-                            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {Button(onClick={onQuiz(bank)}){Text("Открыть тест")};TextButton(onClick={onEdit(bank)}){Text("Редактировать")};TextButton(onClick={onCardsFromQuiz(bank)}){Text("Сделать карточки")};if(unverified>0)TextButton(onClick={workKind=BatchKind.ANSWERS;answerBankId=bank.id;workflows=true}){Text("Определить ответы с ИИ")}}
+                            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {StitchButton(onClick={onQuiz(bank)}){Text("Открыть тест")};TextButton(onClick={onEdit(bank)}){Text("Редактировать")};TextButton(onClick={onCardsFromQuiz(bank)}){Text("Сделать карточки")};if(unverified>0)TextButton(onClick={workKind=BatchKind.ANSWERS;answerBankId=bank.id;workflows=true}){Text("Определить ответы с ИИ")}}
                         }}
                     }
                     SetTab.CARDS -> Column(Modifier.fillMaxSize()) {

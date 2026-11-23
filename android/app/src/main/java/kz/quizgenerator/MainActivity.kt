@@ -348,8 +348,10 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
         )
     }
 
+    var editorAnswersId by rememberSaveable {mutableStateOf<String?>(null)}
     val tabs = listOf(Page.HOME, Page.LIBRARY, Page.CARDS, Page.ACCOUNT)
     val mainPage = page in tabs
+    StitchContentTheme(enabled=page!=Page.HOME) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -423,7 +425,14 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                         repository, saveQuiz = { openDraft(QuizDraft(it), Page.AI) },
                         saveCards = { cards ->val ok=update(study.copy(cards=study.cards+cards));if(ok && activeSetId!=null)runCatching {repository.sets.linkCards(activeSetId!!,cards.map {it.id})}.onFailure {libraryError="Карточки сохранены, но не прикреплены к набору"};ok }, onBack = ::goBack, onAccount = { accountReturn = page; page = Page.ACCOUNT }, initialTask = aiTask,studySetId=activeSetId)
                     Page.EDITOR -> editor.draft?.let { draft ->
-                        if(draftSaving)StudyLoading("Сохранение теста") else DraftScreen(draft,
+                        if(editorAnswersId==draft.quiz.id)EditorAnswerSearch(draft,repository,activeSetId,{editorAnswersId=null},
+                            onStored={saved->quizzes=quizzes.filterNot {it.id==saved.id}+saved;editor.draft=QuizDraft(saved,original=saved);editorAnswersId=saved.id},onQuiz={openQuiz(it)},onLectureAi={lecture,task->scope.launch {
+                                val model=ViewModelProvider(context.studyActivity()).get("materials:"+auth.account?.uid,MaterialUiModel::class.java)
+                                model.bind(repository)
+                                val ready=kotlinx.coroutines.withTimeoutOrNull(5000){while(!model.ready)delay(50);true}==true
+                                if(ready)model.fromLecture(repository,lecture){aiTask=task;page=Page.AI} else snackbar.showSnackbar("Не удалось открыть материалы лекции. Вернитесь в её учебный набор")
+                            }})
+                        else if(draftSaving)StudyLoading("Сохранение теста") else DraftScreen(draft,
                             { editor.draft = draft.copy(quiz = it); draftError = null },
                             { index ->
                                 editor.fields = QuestionFields(editor.draft?.quiz?.questions?.getOrNull(index) ?: emptyQuestion())
@@ -446,7 +455,7 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                                         }catch(e: kotlinx.coroutines.CancellationException){throw e}catch(e: Exception){draftError=e.message ?: "Не удалось сохранить тест"}finally{draftSaving=false}
                                     }
                                 }
-                            }, draftError, { ImportEncodingControls(editor, repository) })
+                            }, draftError, { ImportEncodingControls(editor, repository) },{editorAnswersId=draft.quiz.id})
                     }
                     Page.QUESTION -> editor.draft?.let { draft ->
                         editor.fields?.let { fields ->
@@ -489,5 +498,6 @@ private fun TestHelperApp(repository: QuizRepository, editor: EditorModel, study
                 }
             }
         }
+    }
     }
 }

@@ -114,7 +114,7 @@ internal class EditorModel : ViewModel() {
 @Composable
 internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion: (Int) -> Unit,
                          onBack: () -> Unit, onSave: () -> Unit, error: String?,
-                         encodingControls: @Composable () -> Unit = {}) {
+                         encodingControls: @Composable () -> Unit = {}, onFindAnswers: (() -> Unit)? = null) {
     var removing by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by rememberSaveable { mutableStateOf(false) }
     var repairError by remember {mutableStateOf<String?>(null)}
@@ -128,9 +128,9 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
     }
     val actions = @Composable {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!preview) OutlinedButton(enabled = quiz.questions.size < QuizLimits.QUESTIONS, onClick = { onQuestion(-1) }) { Text("Добавить вопрос") }
-            OutlinedButton(onClick = { preview = !preview }) { Text(if (preview) "К редактированию" else "Предпросмотр") }
-            Button(onClick = onSave) { Text("Сохранить тест") }
+            if (!preview) StitchOutlinedButton(enabled = quiz.questions.size < QuizLimits.QUESTIONS, onClick = { onQuestion(-1) }) { Text("Добавить вопрос") }
+            StitchOutlinedButton(onClick = { preview = !preview }) { Text(if (preview) "К редактированию" else "Предпросмотр") }
+            StitchButton(onClick = onSave) { Text("Сохранить тест") }
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -150,6 +150,13 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         Text("Распознано ${quiz.questions.size}")
                         Text("Требуют проверки ${quiz.importProblems.distinctBy {it.number?.toString() ?: it.source}.size}")
                         Text("Вариантов: ${quiz.questions.sumOf {it.options.size}} · Подтверждённых ключей: ${quiz.questions.count {it.evidence.confirmed && it.correctIndices.isNotEmpty()}}")
+                    }
+                }
+                if(quiz.questions.any {!it.evidence.confirmed} && onFindAnswers!=null)item {
+                    StudyPanel(tone=PanelTone.SKY) {
+                        Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){StudyIcon(Glyph.AI);Column(Modifier.weight(1f)){Text("Ответы к вашему банку",style=MaterialTheme.typography.titleMedium);Text("ИИ предложит варианты для ручной проверки",style=MaterialTheme.typography.bodySmall)}}
+                        StitchButton(onClick=onFindAnswers,modifier=Modifier.fillMaxWidth()){Text("Найти ответы с ИИ")}
+                        Text("Требуется обновление сервера. Подтверждённые ключи не заменяются.",style=MaterialTheme.typography.bodySmall)
                     }
                 }
                 repairError?.let {item {StudyError(it)}}
@@ -174,7 +181,7 @@ internal fun DraftScreen(draft: QuizDraft, onChange: (Quiz) -> Unit, onQuestion:
                         Text("Без ключа: $unknown · Предположительных: $inferred" +
                             if (multiple > 0) " · С несколькими ответами: $multiple" else "")
                         Text("Предположения исключены из оценки. Подтвердите ответ вручную в вопросе.")
-                        if (unknown > 0) Text("Правило первого варианта недоступно без независимой проверки 30 вопросов. Подтверждайте ключи отдельно; автоматического угадывания нет.")
+
                     }
                 }
                 if (compact) item { actions() }
@@ -277,7 +284,7 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
             }
         }
         item { StudyField(explanation, { explanation = it.take(65_536) }, "Пояснение") }
-        item { Button(onClick = {
+        item { StitchButton(onClick = {
             val changed = question.copy(text = text.trim(), options = options.map(String::trim),
                 correctIndex = correct.minOrNull(), additionalCorrectIndices = correct.sorted().drop(1),
                 explanation = explanation.trim().ifBlank { null },
@@ -294,6 +301,9 @@ internal fun QuestionScreen(fields: QuestionFields, onCancel: () -> Unit, onAppl
 @Composable
 internal fun ImportEncodingControls(editor: EditorModel, repository: QuizRepository) {
     if (editor.sourceUri == null) return
+    var manual by remember(editor.sourceUri) {mutableStateOf(false)}
+    val suspicious=editor.imported?.encodingConfident==false || editor.failure?.contains("кодиров",ignoreCase=true)==true || editor.decodedPreview.contains('\uFFFD')
+    if(!manual && !suspicious){TextButton(onClick={manual=true}){Text("Текст отображается неверно?")};return}
     var confirm by remember { mutableStateOf<String?>(null) }
     confirm?.let { choice ->
         StudyConfirmation("Перечитать исходный файл?", "Изменения текущего несохранённого импорта будут заменены новым предпросмотром.",
